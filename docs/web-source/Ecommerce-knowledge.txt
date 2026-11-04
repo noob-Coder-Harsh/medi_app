@@ -1,0 +1,397 @@
+﻿The ideal design is **intent-driven fetching**, not “load the catalog.” When a customer opens home, you send a **homepage shell + a few small product cards**. Search, sort, and filters are **new server queries**. Admin screens are a **different data plane**: paginated lists, mutate-one-row, return that row. Realtime is **narrow** (this store, this cart, this table page) — never a live dump of every SKU.
+
+
+## The rule that everything else follows
+
+
+A catalog of 5,000–50,000 SKUs is not a document you download. It is a **queryable index**. The UI never owns “all products.” It owns **the current intent**:
+
+
+| User intent | What you fetch | Typical size |
+|---|---|---|
+| Open home | Store shell + 3–6 collections of 12–24 cards | ~20–80 products |
+| Open a category | First page of that category (20–40 cards) | one page |
+| Type in search | Debounced index query + facets | 10–20 hits |
+| Change sort/filter | Same query with new params | one page |
+| Open PDP | One product + 8–12 related | 1 + related |
+| Add to cart / checkout | Availability for **those SKU IDs only** | cart size |
+| Admin inventory table | 25–50 rows + total count | one page |
+| Admin edits a medicine | That row (and maybe its batches) | 1 entity |
+
+
+If the user never searches, you never paid to send the other 4,950 SKUs. That is the whole cost model.
+
+
+---
+
+
+## Two data planes (do not share one “catalog store”)
+
+
+Customer storefront and admin/POS want **different fields, freshness, and shape**. Mixing them is how apps end up downloading the warehouse into Zustand.
+
+
+```mermaid
+flowchart LR
+  subgraph customer [Customer plane]
+    Home[Home collections]
+    Search[Search index]
+    PDP[Product detail]
+    Cart[Cart SKU revalidate]
+  end
+
+
+  subgraph admin [Admin / POS plane]
+    Lists[Paginated tables]
+    Entity[Single entity + batches]
+    Dashboard[Pre-aggregated counts]
+  end
+
+
+  subgraph source [Source of truth]
+    DB[(Operational DB)]
+    Index[(Search index)]
+    Cache[(Short TTL cache)]
+  end
+
+
+  DB --> Index
+  DB --> Cache
+  Cache --> Home
+  Index --> Search
+  Cache --> PDP
+  DB --> Cart
+  DB --> Lists
+  DB --> Entity
+  Cache --> Dashboard
+```
+
+
+- **Customer** reads a **read model**: card fields, thumbnails, sell price, `in_stock`.
+- **Admin** reads the **write model**: cost, batches, expiry, supplier, GST, audit.
+- A customer card is a few hundred bytes. An admin inventory row with batches is kilobytes. Do not send admin rows to the storefront, and do not send 5,000 customer cards to the admin table.
+
+
+POS is a third case: a cashier often needs **local search with no round-trip**. That is **snapshot + delta sync**, not homepage fetch. Treat it separately (bottom of this answer).
+
+
+---
+
+
+## Customer home: what actually loads
+
+
+Home is **composed slices**, not `SELECT * FROM products`.
+
+
+```mermaid
+sequenceDiagram
+  participant UI as Home UI
+  participant Edge as CDN / edge cache
+  participant API as Catalog API
+  participant Idx as Search / collections
+  participant DB as DB
+
+
+  UI->>Edge: GET store shell (slug, hours, banners, categories)
+  Edge-->>UI: cached 30s-5m
+  par Featured
+    UI->>API: collection=featured limit=24
+    API->>Idx: ranked slice
+    Idx-->>API: 24 card DTOs
+  and Frequent
+    UI->>API: collection=frequent limit=24
+  and Category chips
+    UI->>API: categories with product_count
+  end
+  API-->>UI: cards only (id, name, thumb, price, unit, in_stock)
+  Note over UI,DB: Full catalog and exact qty never leave the server
+```
+
+
+**Store shell** (tiny, cacheable): name, logo, open/closed, delivery ETA, category chips, banners.
+
+
+**Collections** (the “catalog” the user sees): “Frequently bought,” “Deals,” “Pain relief,” each a **precomputed or indexed list** of 12–24 product IDs. Quick-commerce homes (Blinkit/Zepto-style) work this way: the first screen is merchandising, not a table of inventory.
+
+
+**Product card DTO** — only what a tile needs:
+
+
+- `id`, `name`, `image_thumb`, `pack_label`, `mrp`, `selling_price`, `in_stock` (boolean or `ok | low | out`)
+- Not: full description, all batches, purchase price, exact `available_qty`, supplier, GST slabs
+
+
+**Images** go through a CDN at thumbnail size. The JSON should not include base64 or original photos.
+
+
+**Pagination** after that is **cursor / keyset**, page size 20–40. Offset pagination (`page=50`) gets expensive; keyset on `(rank, id)` or `(category_sort, id)` does not.
+
+
+Infinite scroll is “fetch the next cursor when the user is near the bottom,” not “prefetch the rest of the catalog because they might scroll.”
+
+
+---
+
+
+## Search, sort, filters
+
+
+These are **never** “filter the array already in the browser.” They are **new queries against an index**.
+
+
+```mermaid
+flowchart TB
+  A[Keystroke] --> B[Debounce 200-300ms, min 2 chars]
+  B --> C[Search index query]
+  C --> D[text + filters + sort + cursor + limit]
+  D --> E[Hits: card DTOs]
+  D --> F[Facets: counts for this result set]
+  E --> G[Render 10-20 tiles]
+  F --> H[Render filter chips with counts]
+```
+
+
+**Search**
+
+
+- Engine: Postgres FTS is enough at small scale; Typesense / Meilisearch / Elasticsearch / Algolia when ranking, typo-tolerance, and facets matter.
+- Request: `q`, `category`, `in_stock`, `price_min/max`, `sort`, `cursor`, `limit`.
+- Response: hits + next cursor + **facet counts for the current result set** (how many in “Tablets,” how many in stock). Facets must come from the search engine aggregation, not from scanning every product.
+- Autocomplete is a **cheaper prefix index** (names + SKUs only), 5–8 suggestions, not full cards.
+
+
+**Sort**
+
+
+- Relevance only exists in the search engine.
+- Price / popularity / newest are index sort keys or SQL `ORDER BY` with an index that matches the filter.
+- Changing sort does not reuse a downloaded catalog; it is `limit=24` again.
+
+
+**Filters**
+
+
+- Applied **server-side** in the same query.
+- `in_stock=true` is a filter on a denormalized boolean (or a stock bitmap), not `JOIN batches SUM(qty)` on every search.
+- Category trees: filter on `category_id` (and children IDs), which is a few bytes in the query, not a client-side walk of all products.
+
+
+**Why this saves egress:** 10 searches × 20 hits = 200 cards, even if the catalog has 20,000 SKUs. Client-side search over a dumped catalog costs the dump **whether or not they search**.
+
+
+---
+
+
+## Freshness without “live catalog”
+
+
+Customer and admin need **different clocks**. Most “realtime catalog” designs waste money because they stream rows nobody is looking at.
+
+
+| Surface | Fresh enough | Mechanism |
+|---|---|---|
+| Home tiles | 15–60 seconds | CDN/cache TTL on collection + `in_stock` |
+| Category / search | 10–30 seconds | Cache keyed by query string |
+| PDP price | seconds to ~30s | short TTL or re-fetch on focus |
+| Add to cart | **now** | read availability for that SKU |
+| Checkout | **authoritative now** | reserve/deduct in one DB transaction |
+| Admin table | now for **this page** | refetch that query after mutation; optional socket |
+| Admin dashboard | 30–60 seconds | materialized counts, not `COUNT(*)` every load |
+| New online order | **now** | narrow channel: `store_id` orders only |
+
+
+**Split content from availability.** Name, image, category change rarely → cache minutes to hours, update the search index asynchronously. Price and stock change often → a small availability record (`product_id → {price, in_stock, version}`). Home can show a slightly stale tile; **cart and checkout must not**.
+
+
+```mermaid
+flowchart TB
+  subgraph write [Admin write]
+    M[Update price / stock / name]
+  end
+
+
+  M --> DB[(DB commit)]
+  DB --> Q[Outbox event]
+  Q --> I[Reindex that SKU only]
+  Q --> C[Bump cache keys for that SKU / collection]
+  Q --> V[Increment store catalog_version]
+
+
+  subgraph read [Who actually refetches]
+    H[Home: next TTL, not instantly]
+    S[Search: index catches up in ~1s]
+    P[Open PDP / cart: fetch those IDs]
+    A[Admin UI: patch the one row in cache]
+  end
+
+
+  C --> H
+  I --> S
+  V --> P
+  DB --> A
+```
+
+
+**Realtime, used correctly**
+
+
+- Subscribe to **IDs on screen**, not tables. Example: cart has 4 SKUs → listen for those 4. Admin inventory is viewing page of 25 → listen for those 25, or don’t listen at all and patch after your own save.
+- Store-wide channel is for **orders** (“new order #182”), not for every stock tick.
+- Postgres `NOTIFY` / Supabase Realtime filtered with `store_id=...` is still too wide if every stock change broadcasts full rows. Send **event + id** (`stock.changed`, `product_id`) and let the client fetch if it cares.
+- Tab focus / reconnect: refetch **visible queries** only (React Query `refetchOnWindowFocus` on the active page key).
+
+
+Checkout is the only place that must be strictly correct. The pattern used by serious commerce is: **check → reserve → pay → confirm**. Home being 20 seconds behind is acceptable; overselling at pay is not.
+
+
+---
+
+
+## Admin / owner: fetch and mutate
+
+
+Admin is **CRUD over pages**, plus a dashboard of **pre-computed numbers**.
+
+
+**List screens (Inventory, Purchases, Orders)**
+
+
+- `GET /inventory?q=&category=&cursor=&limit=25`
+- Return `{ rows, next_cursor, total }` where `total` is cached or approximated if exact count is expensive.
+- Search box hits the same index or an `ILIKE` on indexed columns — still one page of rows.
+- Empty state is a short response, not “0 rows because we downloaded everything and filtered it to nothing.”
+
+
+**Detail / edit**
+
+
+- `GET /products/:id` with batches, tax, suppliers as needed.
+- Save: `PATCH` that id. Response **is the updated entity**. The UI writes that object into the current list cache (`setQueryData`) and does **not** refetch the catalog.
+
+
+**Mutations (the cheap pattern)**
+
+
+```mermaid
+sequenceDiagram
+  participant UI as Admin UI
+  participant API as API
+  participant DB as DB
+  participant Idx as Search index
+
+
+  UI->>API: PATCH product 42
+  API->>DB: update one row
+  DB-->>API: new row
+  API-->>UI: { product: {...} }
+  UI->>UI: patch row 42 in current page cache
+  API--)Idx: async reindex product 42
+  Note over UI: Other screens stay stale until they are opened, which is correct
+```
+
+
+That is the opposite of “on any save, reload all `store_products`.” After a write, only:
+
+
+1. the returned entity  
+2. queries that **include that id** (current table page, open PDP)  
+3. derived counts if a trigger/materialized view updated them  
+
+
+**Dashboard** should not compute from the catalog in the browser. Keep a `store_stats` row or materialized view: `sku_count`, `out_of_stock_count`, `today_gmv`, `open_orders`. Refresh on a timer or on the order channel.
+
+
+**Concurrency:** last-write-wins with `updated_at` / version column is enough for one owner. If two staff edit, return 409 when versions differ.
+
+
+---
+
+
+## Caching that does not fight freshness
+
+
+Think in **keys**, not “cache the catalog.”
+
+
+| Key | Example | TTL |
+|---|---|---|
+| Store shell | `store:{slug}:shell` | 1–5 min |
+| Collection page | `store:{id}:col:featured:v{n}` | 15–60 s |
+| Search | usually skip or 5–10 s | short / none |
+| Product card | `product:{id}:card:v{n}` | until that SKU changes |
+| Availability | `store:{id}:avail:{id}` | 5–15 s |
+| Admin list | **do not CDN**; user-specific | request-scoped |
+| Dashboard counts | `store:{id}:stats` | 30–60 s |
+
+
+Invalidation is **per SKU or per collection**, not global. Updating Paracetamol does not purge the whole store cache; it bumps `product:42` and any collection that contains 42 (or you accept TTL).
+
+
+On the client, React Query / SWR keys should look like the server keys:
+
+
+- `['store', slug, 'home']`
+- `['search', slug, q, filters, cursor]`
+- `['inventory', storeId, query]`
+- `['product', id]`
+
+
+When product 42 is saved, invalidate `['product', 42]` and **optionally** the current inventory query — not `['catalog']` as one blob.
+
+
+---
+
+
+## POS / offline: the exception (and why it confuses people)
+
+
+A storefront customer **must not** download the catalog.
+
+
+A POS terminal **may** keep a local copy so search works in 50ms with a flaky network. That design is:
+
+
+1. **Snapshot:** once (or nightly), compressed card+price+stock for **this store**, not the whole marketplace.  
+2. **Watermark:** `catalog_version` or `updated_at`.  
+3. **Delta:** “give me changes since version 1842” — only touched SKUs.  
+4. **Still not the home page.** First POS paint can be 50 frequent SKUs from local DB; the rest stays on disk until searched.
+
+
+Delta sync is for **devices that already opted into a replica**. Using the same “full catalog in memory” for a browser storefront is the wasteful pattern: every tab pays replica cost, then throws it away.
+
+
+---
+
+
+## What “reasonable” looks like in numbers
+
+
+For a 10,000 SKU pharmacy / grocery / dark store:
+
+
+- Home JSON: ~30–80 KB (shell + ~50 cards), not 5–20 MB  
+- Search: ~10–30 KB per query  
+- Admin inventory page: ~25 rows, not 10,000  
+- Realtime: 0–N events where N = items on screen, not 10,000 row payloads  
+- Checkout: 1 round-trip that locks stock for cart lines only  
+
+
+The anti-pattern is a single client store filled with every `store_products` + batches “so filters are instant.” Filters feel instant because you prepaid the entire catalog on every login, every device, every session — which is exactly the egress and RAM problem.
+
+
+**Correct instant filters** come from an index that already has the fields you filter on. The user still sees an answer in one round-trip of 20 rows.
+
+
+---
+
+
+## Mental model to keep
+
+
+1. **Home = merchandising slices.**  
+2. **Browse/search = paginated index queries.**  
+3. **Cart/checkout = live reads + reserve.**  
+4. **Admin = page of rows; mutation returns that row.**  
+5. **Realtime = subscribe to what is visible, plus order alerts.**  
+6. **POS replica (optional) ≠ customer catalog.**

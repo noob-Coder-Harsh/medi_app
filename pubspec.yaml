@@ -1,0 +1,43 @@
+name: medi_app
+description: MediSync — neighbourhood pharmacy storefront and staff tools.
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cached_network_image: ^3.4.1
+  cupertino_icons: ^1.0.8
+  dio: ^5.9.0
+  firebase_auth: ^6.1.1
+  firebase_core: ^4.2.0
+  flutter_dotenv: ^6.0.0
+  flutter_riverpod: ^3.0.3
+  flutter_secure_storage: ^9.2.4
+  geolocator: ^14.0.2
+  go_router: ^16.2.4
+  google_fonts: ^6.3.2
+  intl: ^0.20.2
+  permission_handler: ^12.0.1
+  shared_preferences: ^2.5.3
+  supabase_flutter: ^2.10.3
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/locales/en.json
+    - assets/locales/hi.json
+    - .env.example
