@@ -47,5 +47,20 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MediSync uses your location to find a nearby chemist.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.im7digital.med.mediApp</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>medisync</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
 </dict>
 </plist>

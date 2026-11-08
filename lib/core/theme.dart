@@ -11,12 +11,35 @@ abstract final class AppTheme {
   static const double touchTarget = 48;
   static const double chargeHeight = 56;
   static const double bodySize = 16;
+  /// Min height for empty staff/customer list bodies.
+  static const double emptyListMinHeight = 220;
+
+  /// Full-page default background (behind every scaffold).
+  static const pageBackgroundAsset = 'assets/images/app_bg.png';
+
+  /// Default AppBar strip background.
+  static const appBarBackgroundAsset = 'assets/images/appbar.png';
 
   static const Color ink = Color(0xFF0F172A);
   static const Color hairlineColor = Color(0xFFD7E0DC);
   static const Color amber = Color(0xFFD97706);
   static const Color error = Color(0xFFDC2626);
   static const Color onTeal = Color(0xFFFFFFFF);
+
+  /// AppBar flexibleSpace that paints [appBarBackgroundAsset].
+  static Widget appBarBackground() {
+    return const SizedBox.expand(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage(appBarBackgroundAsset),
+            fit: BoxFit.cover,
+            alignment: Alignment.centerRight,
+          ),
+        ),
+      ),
+    );
+  }
 
   static const BorderRadius borderRadius = BorderRadius.all(
     Radius.circular(radius),
@@ -50,21 +73,27 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: Brand.themeBackground,
-      canvasColor: Brand.themeBackground,
+      // Transparent so [pageBackgroundAsset] shows through every scaffold.
+      scaffoldBackgroundColor: Colors.transparent,
+      canvasColor: Colors.transparent,
       textTheme: textTheme,
       fontFamily: 'Inter',
       appBarTheme: AppBarTheme(
-        backgroundColor: Brand.themeBackground,
-        foregroundColor: ink,
+        backgroundColor: Colors.transparent,
+        foregroundColor: onTeal,
         elevation: 0,
         shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
-        titleTextStyle: textTheme.titleLarge,
+        iconTheme: const IconThemeData(color: onTeal),
+        actionsIconTheme: const IconThemeData(color: onTeal),
+        titleTextStyle: (textTheme.titleLarge ?? const TextStyle()).copyWith(
+          color: onTeal,
+          fontWeight: FontWeight.w700,
+        ),
       ),
       cardTheme: CardThemeData(
-        color: Brand.themeBackground,
+        color: Colors.white,
         elevation: 0,
         shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
@@ -75,13 +104,13 @@ abstract final class AppTheme {
         margin: EdgeInsets.zero,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: Brand.themeBackground,
+        backgroundColor: Colors.white,
         elevation: 0,
         shadowColor: Colors.transparent,
         shape: const RoundedRectangleBorder(borderRadius: borderRadius),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: Brand.themeBackground,
+        backgroundColor: Colors.white,
         elevation: 0,
         shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
@@ -128,14 +157,14 @@ abstract final class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         elevation: 0,
         shadowColor: Colors.transparent,
-        backgroundColor: Brand.themeBackground,
+        backgroundColor: Colors.white,
         indicatorColor: Brand.themeColor.withValues(alpha: 0.12),
         height: 64,
         labelTextStyle: WidgetStatePropertyAll(textTheme.labelMedium),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Brand.themeBackground,
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,

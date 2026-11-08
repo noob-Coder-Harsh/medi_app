@@ -120,3 +120,7 @@ The web is one Next.js app with two surfaces sharing one Supabase Postgres. The 
 - **Staff world** is hidden: long-press the logo on the customer login screen, then Supabase email/password.
 
 See [APP_SHAPE.md](./APP_SHAPE.md).
+
+## Web todos (app blockers)
+
+Step 30 catalog create API: see [STEP_29_30_WEB_TODO.md](./STEP_29_30_WEB_TODO.md) — `POST /api/app/staff/catalog/custom` must accept `opening_batch` (same as web `ProductCreateForm`).

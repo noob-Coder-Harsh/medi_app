@@ -18,7 +18,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  testWidgets('launches location placeholder as MediSync', (
+  testWidgets('launches staff login as MediSync', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -27,6 +27,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(Brand.appName), findsOneWidget);
+    expect(find.text('Store Owner Login'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
   });
 
@@ -38,11 +39,13 @@ void main() {
 
     final MaterialApp app = tester.widget(find.byType(MaterialApp));
     expect(app.theme!.colorScheme.primary, Brand.themeColor);
-    expect(app.theme!.scaffoldBackgroundColor, Brand.themeBackground);
+    expect(app.theme!.scaffoldBackgroundColor, Colors.transparent);
 
     final ThemeData theme = AppTheme.light();
     expect(theme.colorScheme.primary, const Color(0xFF0F766E));
-    expect(theme.scaffoldBackgroundColor, const Color(0xFFF7FAF9));
+    expect(theme.scaffoldBackgroundColor, Colors.transparent);
+    expect(AppTheme.pageBackgroundAsset, 'assets/images/app_bg.png');
+    expect(AppTheme.appBarBackgroundAsset, 'assets/images/appbar.png');
     expect(AppTheme.charge.minimumSize!.resolve({}), const Size(48, 56));
   });
 
@@ -95,9 +98,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Staff'), findsOneWidget);
+    expect(find.text('Store Owner Login'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.text('Home'), findsNothing);
+    expect(find.text('Staff'), findsNothing);
   });
 
   testWidgets('staff pos shell has no customer Home tab', (

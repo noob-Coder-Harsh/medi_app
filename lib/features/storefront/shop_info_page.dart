@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format.dart';
 import '../../core/i18n.dart';
 import '../../core/link_opener.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../core/whatsapp.dart';
 import '../../data/models/listing.dart';
@@ -109,7 +110,7 @@ class ShopInfoPage extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('STOREFRONT.STORE_INFO'))),
+      appBar: MediAppBar(titleText: t('STOREFRONT.STORE_INFO')),
       body: body,
     );
   }

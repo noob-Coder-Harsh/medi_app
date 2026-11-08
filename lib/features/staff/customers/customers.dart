@@ -1,1 +1,2 @@
-// Store customers / khata. Step 26.
+export 'customers_controller.dart';
+export 'customers_page.dart';

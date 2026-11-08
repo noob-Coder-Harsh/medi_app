@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/format.dart';
 import '../../core/i18n.dart';
 import '../../core/routes.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../data/models/customer_order.dart';
 import '../account/customer_auth.dart';
@@ -34,7 +35,7 @@ class OrdersPage extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('NAV.ORDERS'))),
+      appBar: MediAppBar(titleText: t('NAV.ORDERS')),
       body: !session.isSignedIn
           ? _GuestBody(
               onSignIn: () async {

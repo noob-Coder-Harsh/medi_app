@@ -1,16 +1,20 @@
-/** Smallest sellable unit — inventory is always counted in these. */
+/** Smallest sellable unit — inventory is always counted in these. gm/ml/doses are label content only. */
 export const BASE_UNIT_VALUES = [
   "tablet",
   "capsule",
-  "ml",
-  "gram",
+  "piece",
   "bottle",
   "vial",
-  "piece",
-  "dose",
+  "tube",
+  "inhaler",
 ] as const;
 
 export type BaseUnit = (typeof BASE_UNIT_VALUES)[number];
+
+/** Legacy inventory units still present on older rows; not offered in the catalog form. */
+export const LEGACY_BASE_UNIT_VALUES = ["ml", "gram", "dose"] as const;
+
+export type LegacyBaseUnit = (typeof LEGACY_BASE_UNIT_VALUES)[number];
 
 /** How the medicine is packed for retail (metadata only). */
 export const PRIMARY_PACK_TYPE_VALUES = [
@@ -49,12 +53,11 @@ export const DEFAULT_SALE_POLICY: SalePolicy = "loose_allowed";
 export const BASE_UNIT_OPTIONS: { value: BaseUnit; label: string }[] = [
   { value: "tablet", label: "Tablet" },
   { value: "capsule", label: "Capsule" },
-  { value: "ml", label: "ml" },
-  { value: "gram", label: "Gram" },
+  { value: "piece", label: "Piece" },
   { value: "bottle", label: "Bottle" },
   { value: "vial", label: "Vial" },
-  { value: "piece", label: "Piece" },
-  { value: "dose", label: "Dose" },
+  { value: "tube", label: "Tube" },
+  { value: "inhaler", label: "Inhaler" },
 ];
 
 export const PRIMARY_PACK_TYPE_OPTIONS: { value: PrimaryPackType; label: string }[] = [

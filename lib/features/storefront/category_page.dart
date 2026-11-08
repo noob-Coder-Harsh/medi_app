@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/i18n.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/routes.dart';
 import '../../data/models/listing.dart';
 import 'catalog_controller.dart';
@@ -32,10 +33,8 @@ class CategoryPage extends ConsumerWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          asyncListing.asData?.value.category?.name ?? cat,
-        ),
+      appBar: MediAppBar(
+        titleText: asyncListing.asData?.value.category?.name ?? cat,
       ),
       body: asyncListing.when(
         loading: () => Center(child: Text(t('STOREFRONT.LOADING_CATALOG'))),

@@ -9,6 +9,7 @@ import 'package:medi_app/core/router.dart';
 import 'package:medi_app/data/api_client.dart';
 import 'package:medi_app/data/local/auth_token_store.dart';
 import 'package:medi_app/data/models/checkout.dart';
+import 'package:medi_app/data/models/customer_order.dart';
 import 'package:medi_app/data/models/listing.dart';
 import 'package:medi_app/data/rpc/listing_rpc.dart';
 import 'package:medi_app/data/models/local_cart.dart';
@@ -115,6 +116,29 @@ class FakeWriteApi implements AppWriteApi {
       orderNumber: 42,
       totalAmount: 68,
     );
+  }
+
+  @override
+  Future<List<CustomerOrderListItem>> listOrders({
+    required String idToken,
+  }) async {
+    return const <CustomerOrderListItem>[];
+  }
+
+  @override
+  Future<CustomerOrderDetail> getOrder({
+    required String idToken,
+    required String orderId,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<CustomerOrderDetail> cancelOrder({
+    required String idToken,
+    required String orderId,
+  }) async {
+    throw UnimplementedError();
   }
 }
 

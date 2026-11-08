@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/format.dart';
 import '../../core/i18n.dart';
 import '../../core/routes.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../data/models/listing.dart';
 import '../../data/models/local_cart.dart';
@@ -26,7 +27,7 @@ class CartPage extends ConsumerWidget {
     final shop = ref.watch(activeShopProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('NAV.CART'))),
+      appBar: MediAppBar(titleText: t('NAV.CART')),
       body: cart.isEmpty
           ? _EmptyCart(shopSlug: shop?.slug)
           : asyncCards.when(

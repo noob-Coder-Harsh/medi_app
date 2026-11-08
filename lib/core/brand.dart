@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'env.dart';
+
 /// Product identity from `docs/web-source/brand.ts`.
 /// UI chrome lives in locale JSON, not here.
 abstract final class Brand {
@@ -54,12 +56,19 @@ class BrandOperator {
 class BrandUrls {
   const BrandUrls();
 
-  String get website => 'https://med.im7.in';
-  String get app => 'https://med.im7.in';
-  String get docs => 'https://med.im7.in';
-  String get privacyPolicy => 'https://med.im7.in/privacy-policy';
-  String get termsOfService => 'https://med.im7.in/terms-and-conditions';
-  String get contact => 'https://med.im7.in/contact';
+  /// Public site origin — same as [Env.apiBaseUrl] (falls back for tests/docs).
+  String get origin {
+    final base = Env.apiBaseUrl;
+    if (base.isNotEmpty) return base;
+    return 'https://medsahayta-iota.vercel.app';
+  }
+
+  String get website => origin;
+  String get app => origin;
+  String get docs => origin;
+  String get privacyPolicy => '$origin/privacy-policy';
+  String get termsOfService => '$origin/terms-and-conditions';
+  String get contact => '$origin/contact';
 }
 
 @immutable

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/i18n.dart';
 import '../../core/routes.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../data/models/listing.dart';
 import '../location/store_resolver.dart';
@@ -98,7 +99,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final categories = shell?.categories ?? const <Category>[];
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('NAV.SEARCH'))),
+      appBar: MediAppBar(titleText: t('NAV.SEARCH')),
       body: Column(
         children: <Widget>[
           Padding(

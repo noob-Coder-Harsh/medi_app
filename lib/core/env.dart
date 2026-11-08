@@ -50,15 +50,34 @@ class Env {
     return fromDefine;
   }
 
-  static String get supabaseUrl => _value('SUPABASE_URL', _supabaseUrlDefine);
+  static String get supabaseUrl => _value(
+    'SUPABASE_URL',
+    _supabaseUrlDefine,
+    also: const <String>['NEXT_PUBLIC_SUPABASE_URL'],
+  );
 
-  static String get supabaseAnonKey =>
-      _value('SUPABASE_ANON_KEY', _supabaseAnonKeyDefine);
+  static String get supabaseAnonKey => _value(
+    'SUPABASE_ANON_KEY',
+    _supabaseAnonKeyDefine,
+    also: const <String>['NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+  );
 
   static bool get hasSupabase =>
       supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 
-  static String get apiBaseUrl => _value('API_BASE_URL', _apiBaseUrlDefine);
+  /// Deployed web/API origin (no trailing slash). Used for `/api/app/*` and public pages.
+  static String get apiBaseUrl {
+    final raw = _value('API_BASE_URL', _apiBaseUrlDefine).trim();
+    if (raw.isEmpty) return '';
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  /// Host of [apiBaseUrl], e.g. `medsahayta-iota.vercel.app`.
+  static String get apiBaseHost {
+    final base = apiBaseUrl;
+    if (base.isEmpty) return '';
+    return Uri.tryParse(base)?.host ?? '';
+  }
 
   static String get firebaseApiKey => _value(
     'FIREBASE_API_KEY',

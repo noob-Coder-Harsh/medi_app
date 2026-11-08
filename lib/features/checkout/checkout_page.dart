@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/format.dart';
 import '../../core/i18n.dart';
 import '../../core/routes.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
 import '../../data/models/checkout.dart';
@@ -211,7 +212,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('CUSTOMER_CHECKOUT'))),
+      appBar: MediAppBar(titleText: t('CUSTOMER_CHECKOUT')),
       body: !ref.watch(cartReadyProvider)
           ? Center(child: Text(t('STOREFRONT.LOADING_CATALOG')))
           : cart.isEmpty
@@ -385,7 +386,7 @@ class _SuccessBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(t('STOREFRONT.ORDER_PLACED'))),
+      appBar: MediAppBar(titleText: t('STOREFRONT.ORDER_PLACED')),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
         child: Column(

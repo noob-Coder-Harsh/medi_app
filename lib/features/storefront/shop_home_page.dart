@@ -102,6 +102,22 @@ class _ShopHomePageState extends ConsumerState<ShopHomePage>
     context.push(Routes.product(widget.slug, product));
   }
 
+  Future<void> _rememberShop(PublicStore store) async {
+    ref.read(activeShopProvider.notifier).set(
+      ActiveShop(
+        storeId: store.id,
+        slug: store.slug,
+        name: store.name,
+      ),
+    );
+    final nearby = ref.read(nearbyShopsProvider);
+    await ref.read(shopSessionStoreProvider).save(
+      storeId: store.id,
+      slug: store.slug,
+      nearby: nearby,
+    );
+  }
+
   Future<void> _switchShop(NearbyStore shop) async {
     final cart = ref.read(cartProvider);
     if (cart.items.isNotEmpty &&
@@ -111,19 +127,7 @@ class _ShopHomePageState extends ConsumerState<ShopHomePage>
       if (!replace || !mounted) return;
       await ref.read(cartProvider.notifier).clear();
     }
-    final nearby = ref.read(nearbyShopsProvider);
-    await ref.read(shopSessionStoreProvider).save(
-      storeId: shop.store.id,
-      slug: shop.store.slug,
-      nearby: nearby,
-    );
-    ref.read(activeShopProvider.notifier).set(
-      ActiveShop(
-        storeId: shop.store.id,
-        slug: shop.store.slug,
-        name: shop.store.name,
-      ),
-    );
+    await _rememberShop(shop.store);
     if (!mounted) return;
     context.go(Routes.shop(shop.store.slug));
   }
@@ -160,13 +164,7 @@ class _ShopHomePageState extends ConsumerState<ShopHomePage>
       if (active?.storeId != store.id) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ref.read(activeShopProvider.notifier).set(
-            ActiveShop(
-              storeId: store.id,
-              slug: store.slug,
-              name: store.name,
-            ),
-          );
+          unawaited(_rememberShop(store));
         });
       }
     }

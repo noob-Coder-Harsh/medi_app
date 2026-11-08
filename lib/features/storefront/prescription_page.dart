@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/i18n.dart';
 import '../../core/link_opener.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../../core/whatsapp.dart';
 import '../../data/models/listing.dart';
@@ -19,7 +20,7 @@ class PrescriptionPage extends ConsumerWidget {
     final store = _store(ref);
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('STOREFRONT.PRESCRIPTION_TITLE'))),
+      appBar: MediAppBar(titleText: t('STOREFRONT.PRESCRIPTION_TITLE')),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         child: Column(

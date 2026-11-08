@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:medi_app/app.dart';
 import 'package:medi_app/core/i18n.dart';
 import 'package:medi_app/core/router.dart';
+import 'package:medi_app/core/routes.dart';
 import 'package:medi_app/data/local/location_store.dart';
 import 'package:medi_app/data/local/shop_session_store.dart';
 import 'package:medi_app/data/models/listing.dart';
@@ -60,7 +61,9 @@ void main() {
             FakeNearbySource(nearby),
           ),
         ],
-        child: MediApp(router: createAppRouter()),
+        child: MediApp(
+          router: createAppRouter(initialLocation: Routes.location),
+        ),
       ),
     );
     await tester.pumpAndSettle();

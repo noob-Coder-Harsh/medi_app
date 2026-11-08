@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'i18n.dart';
+import 'medi_app_bar.dart';
 
 /// Dummy page for unbuilt routes. Not a real feature screen.
 class PlaceholderPage extends ConsumerWidget {
@@ -21,7 +22,7 @@ class PlaceholderPage extends ConsumerWidget {
     ref.watch(localeProvider);
     final heading = titleKey != null ? t(titleKey!) : (title ?? '');
     return Scaffold(
-      appBar: AppBar(title: Text(heading)),
+      appBar: MediAppBar(titleText: heading),
       body: detail == null
           ? const SizedBox.expand()
           : Center(child: Text(detail!, textAlign: TextAlign.center)),

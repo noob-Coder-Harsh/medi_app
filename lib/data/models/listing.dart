@@ -389,6 +389,29 @@ List<ListingCard> parseListingCards(Object? value) {
   return value.map(parseListingCard).whereType<ListingCard>().toList();
 }
 
+class InventoryPagePayload {
+  const InventoryPagePayload({
+    required this.items,
+    required this.total,
+  });
+
+  static const empty = InventoryPagePayload(
+    items: <ListingCard>[],
+    total: 0,
+  );
+
+  final List<ListingCard> items;
+  final int total;
+}
+
+InventoryPagePayload parseInventoryPage(Object? value) {
+  final row = asRecord(value);
+  return InventoryPagePayload(
+    items: parseListingCards(row?['items']),
+    total: asNumber(row?['total']).round(),
+  );
+}
+
 Category? parseCategory(Object? value) {
   final row = asRecord(value);
   if (row == null || row['id'] is! String) return null;

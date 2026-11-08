@@ -378,10 +378,10 @@ Customer writes cannot use Next server actions. Add JSON APIs that verify Fireba
 
 ### Step 30 — UX pass
 
-- **Repo:** medi_app
+- **Repo:** medi_app (+ one web API fix — see [STEP_29_30_WEB_TODO.md](./STEP_29_30_WEB_TODO.md) Step 30)
 - **Depends:** 29
-- **Goal:** Hindi chrome gaps, 48dp targets, no shadows/gradients on product chrome, stock `0`, Charge 56dp, empty table min-heights, 13″ not required (phone is the product).
-- **Done when:** Walkthrough of guest browse → cart → OTP → order, and long-press → POS sale, both match APP_SHAPE.
+- **Goal:** Hindi chrome gaps, 48dp targets, no shadows/gradients on product chrome, stock `0`, Charge 56dp, empty table min-heights, 13″ not required (phone is the product). Staff Create product matches web (info + packaging + opening batch); web must accept `opening_batch` on `POST /api/app/staff/catalog/custom`.
+- **Done when:** Walkthrough of guest browse → cart → OTP → order, and long-press → POS sale, both match APP_SHAPE. Custom create from app lands with opening stock.
 - **Do not:** new modules (scan, printer, FCM)
 
 ---

@@ -1,1 +1,4 @@
-// Staff order board. Step 27.
+export 'order_detail_page.dart';
+export 'order_edit_page.dart';
+export 'orders_controller.dart';
+export 'orders_page.dart';

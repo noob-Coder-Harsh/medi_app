@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
 import '../../core/i18n.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/routes.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
@@ -97,7 +98,7 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
 
     if (!session.isSignedIn) {
       return Scaffold(
-        appBar: AppBar(title: Text(t('STOREFRONT.ORDER_DETAIL_TITLE'))),
+        appBar: MediAppBar(titleText: t('STOREFRONT.ORDER_DETAIL_TITLE')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -126,7 +127,7 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     final asyncDetail = ref.watch(orderDetailProvider(widget.orderId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('STOREFRONT.ORDER_DETAIL_TITLE'))),
+      appBar: MediAppBar(titleText: t('STOREFRONT.ORDER_DETAIL_TITLE')),
       body: asyncDetail.when(
         loading: () => Center(child: Text(t('STOREFRONT.ORDERS_LOADING'))),
         error: (Object _, StackTrace __) => Center(

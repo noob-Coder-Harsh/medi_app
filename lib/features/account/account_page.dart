@@ -7,6 +7,7 @@ import '../../core/i18n.dart';
 import '../../core/language_switcher.dart';
 import '../../core/link_opener.dart';
 import '../../core/routes.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/theme.dart';
 import '../location/store_resolver.dart';
 import 'customer_auth.dart';
@@ -23,7 +24,7 @@ class AccountPage extends ConsumerWidget {
     final session = ref.watch(customerSessionProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(t('NAV.ACCOUNT'))),
+      appBar: MediAppBar(titleText: t('NAV.ACCOUNT')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: <Widget>[

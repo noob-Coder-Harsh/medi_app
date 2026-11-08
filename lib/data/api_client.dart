@@ -43,6 +43,42 @@ class AppApiException implements Exception {
   String toString() => message;
 }
 
+/// Parses a JSON object body. Next soft-404s often return HTML with HTTP 200.
+Map<Object?, Object?> requireJsonMap(Response<dynamic> response) {
+  final data = response.data;
+  if (data is Map) return Map<Object?, Object?>.from(data);
+
+  final status = response.statusCode;
+  final raw = data is String ? data.trimLeft() : '';
+  if (raw.startsWith('<!DOCTYPE') ||
+      raw.startsWith('<html') ||
+      raw.startsWith('<HTML')) {
+    throw AppApiException(
+      'API route missing on server (got HTML ${status ?? '?'}). '
+      'Set API_BASE_URL to the deployed host and ensure /api/app routes exist.',
+      statusCode: status,
+    );
+  }
+
+  throw AppApiException(
+    'Unexpected response${status != null ? ' ($status)' : ''}',
+    statusCode: status,
+  );
+}
+
+String dioErrorMessage(DioException error) {
+  final data = error.response?.data;
+  if (data is Map && data['error'] != null) {
+    final err = data['error'];
+    if (err is Map) {
+      final message = err['message'] ?? err['error'] ?? err['code'];
+      if (message != null && '$message'.isNotEmpty) return '$message';
+    }
+    return '${data['error']}';
+  }
+  return error.message ?? 'Request failed';
+}
+
 class DioAppWriteApi implements AppWriteApi {
   DioAppWriteApi({Dio? dio, String? baseUrl})
     : _dio =
@@ -72,19 +108,14 @@ class DioAppWriteApi implements AppWriteApi {
     );
   }
 
-  Map<Object?, Object?> _map(Response<dynamic> response) {
-    final data = response.data;
-    if (data is Map) return Map<Object?, Object?>.from(data);
-    throw AppApiException('Unexpected response', statusCode: response.statusCode);
-  }
+  Map<Object?, Object?> _map(Response<dynamic> response) =>
+      requireJsonMap(response);
 
   Never _throwDio(DioException error) {
-    final data = error.response?.data;
-    String message = error.message ?? 'Request failed';
-    if (data is Map && data['error'] != null) {
-      message = '${data['error']}';
-    }
-    throw AppApiException(message, statusCode: error.response?.statusCode);
+    throw AppApiException(
+      dioErrorMessage(error),
+      statusCode: error.response?.statusCode,
+    );
   }
 
   @override

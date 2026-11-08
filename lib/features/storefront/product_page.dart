@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
 import '../../core/i18n.dart';
+import '../../core/medi_app_bar.dart';
 import '../../core/routes.dart';
 import '../../core/theme.dart';
 import '../../data/models/listing.dart';
@@ -30,10 +31,8 @@ class ProductPage extends ConsumerWidget {
     final asyncPage = ref.watch(productPageProvider(query));
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          asyncPage.asData?.value.product?.name ?? productSlug,
-        ),
+      appBar: MediAppBar(
+        titleText: asyncPage.asData?.value.product?.name ?? productSlug,
       ),
       body: asyncPage.when(
         loading: () => Center(child: Text(t('STOREFRONT.LOADING_CATALOG'))),

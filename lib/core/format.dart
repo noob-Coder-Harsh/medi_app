@@ -16,6 +16,16 @@ abstract final class Format {
     }
   }
 
+  /// Compact list timestamp, e.g. `08 Nov 2026, 02:14 PM`.
+  static String dateTime(DateTime value, {AppLocale locale = AppLocale.en}) {
+    final name = locale.intlName;
+    try {
+      return DateFormat('dd MMM yyyy, hh:mm a', name).format(value);
+    } catch (_) {
+      return DateFormat('dd MMM yyyy, hh:mm a').format(value);
+    }
+  }
+
   static String rupee(num amount, {int? decimalDigits}) {
     final digits = decimalDigits ?? (amount % 1 == 0 ? 0 : 2);
     return NumberFormat.currency(
