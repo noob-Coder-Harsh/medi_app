@@ -105,6 +105,9 @@ sale_policy text not null default 'loose_allowed'
 
 onboarding_completed boolean default false,
 
+-- v1: when false, POS may sell without stock checks (oversell allowed)
+track_stock boolean not null default true,
+
 created_at timestamptz default now(),
 updated_at timestamptz default now()
 
@@ -1459,7 +1462,9 @@ as $$
     'upi_qr_url', s.upi_qr_url,
     'is_open', s.is_open,
     'accepts_online_orders', s.accepts_online_orders,
-    'sale_policy', s.sale_policy
+    'sale_policy', s.sale_policy,
+    'track_stock', s.track_stock,
+    'onboarding_completed', s.onboarding_completed
   );
 $$;
 
@@ -2070,6 +2075,829 @@ begin
 end;
 $$;
 
+-- ============================================================================
+-- WRITE RPCs (v1 catalog-owned stock + POS)
+-- Staff JWT → auth_store_id(). SECURITY DEFINER with explicit store gate.
+-- ============================================================================
+
+create or replace function public._write_text(p jsonb, k text)
+returns text
+language sql
+immutable
+as $$
+  select nullif(btrim(coalesce(p ->> k, '')), '');
+$$;
+
+create or replace function public._write_num(p jsonb, k text)
+returns numeric
+language sql
+immutable
+as $$
+  select nullif(p ->> k, '')::numeric;
+$$;
+
+create or replace function public._write_int(p jsonb, k text)
+returns integer
+language sql
+immutable
+as $$
+  select nullif(p ->> k, '')::integer;
+$$;
+
+create or replace function public._write_bool(p jsonb, k text, default_value boolean default false)
+returns boolean
+language sql
+immutable
+as $$
+  select case
+    when p ? k then coalesce((p ->> k)::boolean, default_value)
+    else default_value
+  end;
+$$;
+
+create or replace function public._slugify(p_text text)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  s text;
+begin
+  s := lower(coalesce(p_text, ''));
+  s := regexp_replace(s, '[^a-z0-9]+', '-', 'g');
+  s := regexp_replace(s, '(^-|-$)', '', 'g');
+  if s = '' then
+    s := 'product';
+  end if;
+  return left(s, 80);
+end;
+$$;
+
+create or replace function public.create_custom_product(p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_track boolean;
+  v_name text;
+  v_category_id uuid;
+  v_slug text;
+  v_product_id uuid;
+  v_store_product_id uuid;
+  v_batch jsonb;
+  v_qty integer;
+  v_mrp numeric;
+  v_sell numeric;
+  v_purchase numeric;
+  v_batch_id uuid;
+  v_batch_no text;
+  v_schedule text;
+  v_featured boolean;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  -- Resilient if older DBs have not added stores.track_stock yet.
+  begin
+    select coalesce(s.track_stock, true) into v_track
+    from public.stores s where s.id = v_store_id;
+  exception
+    when undefined_column then
+      v_track := true;
+  end;
+  if v_track is null then
+    v_track := true;
+  end if;
+
+  v_name := public._write_text(p, 'name');
+  v_category_id := nullif(p ->> 'category_id', '')::uuid;
+  if v_name is null or v_category_id is null then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  if not exists (select 1 from public.categories c where c.id = v_category_id) then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  v_featured := public._write_bool(p, 'is_featured', false);
+  if public._write_bool(p, 'requires_prescription', false) then
+    v_schedule := coalesce(public._write_text(p, 'drug_schedule'), 'h');
+  else
+    v_schedule := coalesce(public._write_text(p, 'drug_schedule'), 'otc');
+  end if;
+
+  v_slug := public._slugify(v_name) || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+
+  insert into public.master_products (
+    category_id, name, generic_name, manufacturer, strength, dosage_form,
+    base_unit, primary_pack_type, primary_pack_quantity,
+    secondary_pack_type, secondary_pack_quantity,
+    description, image_url, drug_schedule, product_kind,
+    composition, hsn_code, gst_rate, track_batch, storage,
+    slug, is_system, approval_status, is_active
+  ) values (
+    v_category_id,
+    v_name,
+    public._write_text(p, 'generic_name'),
+    public._write_text(p, 'manufacturer'),
+    public._write_text(p, 'strength'),
+    public._write_text(p, 'dosage_form'),
+    public._write_text(p, 'base_unit'),
+    public._write_text(p, 'primary_pack_type'),
+    public._write_int(p, 'primary_pack_quantity'),
+    public._write_text(p, 'secondary_pack_type'),
+    public._write_int(p, 'secondary_pack_quantity'),
+    public._write_text(p, 'description'),
+    public._write_text(p, 'image_url'),
+    v_schedule,
+    coalesce(public._write_text(p, 'product_kind'), 'tablet_capsule'),
+    public._write_text(p, 'composition'),
+    public._write_text(p, 'hsn_code'),
+    coalesce(public._write_num(p, 'gst_rate'), 5),
+    coalesce(public._write_bool(p, 'track_batch', true), true),
+    coalesce(public._write_text(p, 'storage'), 'ambient'),
+    v_slug,
+    false,
+    'approved',
+    true
+  )
+  returning id into v_product_id;
+
+  v_batch := p -> 'opening_batch';
+  v_mrp := coalesce(public._write_num(v_batch, 'mrp'), public._write_num(p, 'mrp'));
+  v_sell := coalesce(public._write_num(v_batch, 'selling_price'), public._write_num(p, 'selling_price'));
+  v_qty := coalesce(public._write_int(v_batch, 'quantity'), public._write_int(p, 'quantity'), 0);
+  v_purchase := coalesce(public._write_num(v_batch, 'purchase_price'), public._write_num(p, 'purchase_price'), 0);
+
+  if v_track then
+    if v_batch is null or jsonb_typeof(v_batch) <> 'object' then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+    v_batch_no := coalesce(public._write_text(v_batch, 'batch_no'), 'OPEN');
+    if v_mrp is null or v_sell is null or v_qty is null or v_qty < 0 then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+    if v_sell > v_mrp then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+  end if;
+
+  insert into public.store_products (
+    store_id, product_id, is_active, is_featured, sale_policy,
+    listing_mrp, listing_selling_price
+  ) values (
+    v_store_id,
+    v_product_id,
+    true,
+    v_featured,
+    'inherit',
+    case when not v_track then v_mrp else null end,
+    case when not v_track then v_sell else null end
+  )
+  returning id into v_store_product_id;
+
+  if v_batch is not null and jsonb_typeof(v_batch) = 'object' and v_qty is not null and v_qty > 0
+     and v_mrp is not null and v_sell is not null then
+    v_batch_no := coalesce(public._write_text(v_batch, 'batch_no'), 'OPEN');
+    insert into public.inventory_batches (
+      store_product_id, batch_no, purchase_price, mrp, selling_price,
+      quantity, available_quantity, manufactured_at, expires_at
+    ) values (
+      v_store_product_id,
+      v_batch_no,
+      v_purchase,
+      v_mrp,
+      v_sell,
+      v_qty,
+      v_qty,
+      nullif(v_batch ->> 'manufactured_at', '')::date,
+      nullif(v_batch ->> 'expires_at', '')::date
+    )
+    returning id into v_batch_id;
+
+    insert into public.inventory_transactions (
+      store_id, store_product_id, batch_id, type, quantity,
+      reference_type, reference_id, notes
+    ) values (
+      v_store_id, v_store_product_id, v_batch_id, 'opening_stock', v_qty,
+      'opening_stock', v_batch_id, 'Opening stock'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'store_product_id', v_store_product_id,
+    'product_id', v_product_id,
+    'name', v_name
+  );
+end;
+$$;
+
+create or replace function public.add_system_product_to_store(p_product_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_sp public.store_products%rowtype;
+  v_name text;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+  if p_product_id is null then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  select mp.name into v_name
+  from public.master_products mp
+  where mp.id = p_product_id and coalesce(mp.is_active, true);
+  if v_name is null then
+    raise exception 'NOT_FOUND';
+  end if;
+
+  insert into public.store_products (store_id, product_id, is_active, is_featured)
+  values (v_store_id, p_product_id, true, false)
+  on conflict (store_id, product_id) do update
+    set is_active = true, updated_at = now()
+  returning * into v_sp;
+
+  return jsonb_build_object(
+    'store_product_id', v_sp.id,
+    'product_id', v_sp.product_id,
+    'name', v_name
+  );
+end;
+$$;
+
+create or replace function public.update_store_listing(p_store_product_id uuid, p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_sp public.store_products%rowtype;
+  v_mp public.master_products%rowtype;
+  v_track boolean;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  select * into v_sp
+  from public.store_products
+  where id = p_store_product_id and store_id = v_store_id;
+  if not found then
+    raise exception 'NOT_FOUND';
+  end if;
+
+  select * into v_mp from public.master_products where id = v_sp.product_id;
+  begin
+    select coalesce(s.track_stock, true) into v_track
+    from public.stores s where s.id = v_store_id;
+  exception
+    when undefined_column then
+      v_track := true;
+  end;
+  if v_track is null then
+    v_track := true;
+  end if;
+
+  if coalesce(v_mp.is_system, false) = false then
+    update public.master_products set
+      category_id = coalesce(nullif(p ->> 'category_id', '')::uuid, category_id),
+      name = coalesce(public._write_text(p, 'name'), name),
+      generic_name = case when p ? 'generic_name' then public._write_text(p, 'generic_name') else generic_name end,
+      manufacturer = case when p ? 'manufacturer' then public._write_text(p, 'manufacturer') else manufacturer end,
+      strength = case when p ? 'strength' then public._write_text(p, 'strength') else strength end,
+      dosage_form = case when p ? 'dosage_form' then public._write_text(p, 'dosage_form') else dosage_form end,
+      base_unit = case when p ? 'base_unit' then public._write_text(p, 'base_unit') else base_unit end,
+      primary_pack_type = case when p ? 'primary_pack_type' then public._write_text(p, 'primary_pack_type') else primary_pack_type end,
+      primary_pack_quantity = case when p ? 'primary_pack_quantity' then public._write_int(p, 'primary_pack_quantity') else primary_pack_quantity end,
+      description = case when p ? 'description' then public._write_text(p, 'description') else description end,
+      image_url = case when p ? 'image_url' then public._write_text(p, 'image_url') else image_url end,
+      drug_schedule = case
+        when p ? 'requires_prescription' and public._write_bool(p, 'requires_prescription', false) then 'h'
+        when p ? 'requires_prescription' then 'otc'
+        when p ? 'drug_schedule' then coalesce(public._write_text(p, 'drug_schedule'), drug_schedule)
+        else drug_schedule
+      end,
+      updated_at = now()
+    where id = v_mp.id;
+  elsif p ? 'name' or p ? 'strength' or p ? 'dosage_form' or p ? 'category_id' then
+    raise exception 'SYSTEM_PRODUCT_READONLY';
+  end if;
+
+  update public.store_products set
+    is_active = case when p ? 'is_active' then public._write_bool(p, 'is_active', is_active) else is_active end,
+    is_featured = case when p ? 'is_featured' then public._write_bool(p, 'is_featured', is_featured) else is_featured end,
+    sale_policy = coalesce(public._write_text(p, 'sale_policy'), sale_policy),
+    rack_location = case when p ? 'rack_location' then public._write_text(p, 'rack_location') else rack_location end,
+    reorder_level = coalesce(public._write_int(p, 'reorder_level'), reorder_level),
+    listing_mrp = case
+      when (not v_track) and p ? 'listing_mrp' then public._write_num(p, 'listing_mrp')
+      when (not v_track) and p ? 'mrp' then public._write_num(p, 'mrp')
+      else listing_mrp
+    end,
+    listing_selling_price = case
+      when (not v_track) and p ? 'listing_selling_price' then public._write_num(p, 'listing_selling_price')
+      when (not v_track) and p ? 'selling_price' then public._write_num(p, 'selling_price')
+      else listing_selling_price
+    end,
+    updated_at = now()
+  where id = v_sp.id;
+
+  return jsonb_build_object(
+    'store_product_id', v_sp.id,
+    'product_id', v_sp.product_id
+  );
+end;
+$$;
+
+create or replace function public.adjust_stock(p_store_product_id uuid, p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_sp public.store_products%rowtype;
+  v_direction text;
+  v_reason text;
+  v_qty integer;
+  v_batch_no text;
+  v_mrp numeric;
+  v_sell numeric;
+  v_purchase numeric;
+  v_batch_id uuid;
+  v_avail integer;
+  v_need integer;
+  v_take integer;
+  r record;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  select * into v_sp
+  from public.store_products
+  where id = p_store_product_id and store_id = v_store_id;
+  if not found then
+    raise exception 'NOT_FOUND';
+  end if;
+
+  v_direction := lower(coalesce(public._write_text(p, 'direction'), ''));
+  v_reason := lower(coalesce(public._write_text(p, 'reason'), 'adjustment'));
+  v_qty := public._write_int(p, 'quantity');
+  if v_direction not in ('add', 'reduce') or v_qty is null or v_qty <= 0 then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  if v_direction = 'add' then
+    if v_reason not in ('purchase', 'opening', 'return_in', 'adjustment') then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+    v_batch_no := coalesce(public._write_text(p, 'batch_no'), upper(v_reason));
+    v_mrp := coalesce(public._write_num(p, 'mrp'), v_sp.listing_mrp, 0);
+    v_sell := coalesce(public._write_num(p, 'selling_price'), v_sp.listing_selling_price, v_mrp);
+    v_purchase := coalesce(public._write_num(p, 'purchase_price'), 0);
+    if v_sell > v_mrp then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+
+    select ib.id into v_batch_id
+    from public.inventory_batches ib
+    where ib.store_product_id = v_sp.id and ib.batch_no = v_batch_no
+    limit 1;
+
+    if v_batch_id is null then
+      insert into public.inventory_batches (
+        store_product_id, batch_no, purchase_price, mrp, selling_price,
+        quantity, available_quantity, manufactured_at, expires_at
+      ) values (
+        v_sp.id, v_batch_no, v_purchase, v_mrp, v_sell, v_qty, v_qty,
+        nullif(p ->> 'manufactured_at', '')::date,
+        nullif(p ->> 'expires_at', '')::date
+      )
+      returning id into v_batch_id;
+    else
+      update public.inventory_batches set
+        quantity = quantity + v_qty,
+        available_quantity = available_quantity + v_qty,
+        mrp = v_mrp,
+        selling_price = v_sell,
+        purchase_price = coalesce(v_purchase, purchase_price)
+      where id = v_batch_id;
+    end if;
+
+    insert into public.inventory_transactions (
+      store_id, store_product_id, batch_id, type, quantity,
+      reference_type, reference_id, notes
+    ) values (
+      v_store_id, v_sp.id, v_batch_id, v_reason, v_qty,
+      'stock_adjustment', v_batch_id, public._write_text(p, 'notes')
+    );
+  else
+    if v_reason not in ('damage', 'expiry', 'theft', 'adjustment') then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+
+    select coalesce(sum(ib.available_quantity - ib.reserved_quantity), 0)::integer
+      into v_avail
+    from public.inventory_batches ib
+    where ib.store_product_id = v_sp.id;
+    if v_avail < v_qty then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    v_need := v_qty;
+    for r in
+      select ib.id, (ib.available_quantity - ib.reserved_quantity) as free_qty
+      from public.inventory_batches ib
+      where ib.store_product_id = v_sp.id
+        and (ib.available_quantity - ib.reserved_quantity) > 0
+      order by ib.expires_at nulls last, ib.created_at
+    loop
+      exit when v_need <= 0;
+      v_take := least(v_need, r.free_qty);
+      update public.inventory_batches set
+        available_quantity = available_quantity - v_take
+      where id = r.id;
+      insert into public.inventory_transactions (
+        store_id, store_product_id, batch_id, type, quantity,
+        reference_type, reference_id, notes
+      ) values (
+        v_store_id, v_sp.id, r.id, v_reason, -v_take,
+        'stock_adjustment', r.id, public._write_text(p, 'notes')
+      );
+      v_need := v_need - v_take;
+    end loop;
+  end if;
+
+  select * into v_sp from public.store_products where id = p_store_product_id;
+  return jsonb_build_object(
+    'store_product_id', v_sp.id,
+    'available_quantity', v_sp.available_quantity,
+    'listing_mrp', v_sp.listing_mrp,
+    'listing_selling_price', v_sp.listing_selling_price
+  );
+end;
+$$;
+
+create or replace function public.update_store(p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_store public.stores%rowtype;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  update public.stores set
+    name = coalesce(public._write_text(p, 'name'), name),
+    phone = case when p ? 'phone' then public._write_text(p, 'phone') else phone end,
+    email = case when p ? 'email' then public._write_text(p, 'email') else email end,
+    description = case when p ? 'description' then public._write_text(p, 'description') else description end,
+    gst_number = case when p ? 'gst_number' then public._write_text(p, 'gst_number') else gst_number end,
+    drug_license_number = case when p ? 'drug_license_number' then public._write_text(p, 'drug_license_number') else drug_license_number end,
+    pharmacist_name = case when p ? 'pharmacist_name' then public._write_text(p, 'pharmacist_name') else pharmacist_name end,
+    pharmacist_registration_no = case when p ? 'pharmacist_registration_no' then public._write_text(p, 'pharmacist_registration_no') else pharmacist_registration_no end,
+    address = case when p ? 'address' then public._write_text(p, 'address') else address end,
+    city = case when p ? 'city' then public._write_text(p, 'city') else city end,
+    state = case when p ? 'state' then public._write_text(p, 'state') else state end,
+    pincode = case when p ? 'pincode' then public._write_text(p, 'pincode') else pincode end,
+    latitude = case when p ? 'latitude' then public._write_num(p, 'latitude') else latitude end,
+    longitude = case when p ? 'longitude' then public._write_num(p, 'longitude') else longitude end,
+    logo_url = case when p ? 'logo_url' then public._write_text(p, 'logo_url') else logo_url end,
+    banner_url = case when p ? 'banner_url' then public._write_text(p, 'banner_url') else banner_url end,
+    whatsapp_number = case when p ? 'whatsapp_number' then public._write_text(p, 'whatsapp_number') else whatsapp_number end,
+    opening_time = case when p ? 'opening_time' then nullif(p ->> 'opening_time', '')::time else opening_time end,
+    closing_time = case when p ? 'closing_time' then nullif(p ->> 'closing_time', '')::time else closing_time end,
+    service_radius_km = coalesce(public._write_num(p, 'service_radius_km'), service_radius_km),
+    minimum_order_amount = coalesce(public._write_int(p, 'minimum_order_amount'), minimum_order_amount),
+    delivery_charge = coalesce(public._write_int(p, 'delivery_charge'), delivery_charge),
+    free_delivery_above = case when p ? 'free_delivery_above' then public._write_int(p, 'free_delivery_above') else free_delivery_above end,
+    allow_cod = case when p ? 'allow_cod' then public._write_bool(p, 'allow_cod', allow_cod) else allow_cod end,
+    allow_manual_upi = case when p ? 'allow_manual_upi' then public._write_bool(p, 'allow_manual_upi', allow_manual_upi) else allow_manual_upi end,
+    allow_prescription_upload = case when p ? 'allow_prescription_upload' then public._write_bool(p, 'allow_prescription_upload', allow_prescription_upload) else allow_prescription_upload end,
+    module_pickup = case when p ? 'module_pickup' then public._write_bool(p, 'module_pickup', module_pickup) else module_pickup end,
+    module_delivery = case when p ? 'module_delivery' then public._write_bool(p, 'module_delivery', module_delivery) else module_delivery end,
+    upi_id = case when p ? 'upi_id' then public._write_text(p, 'upi_id') else upi_id end,
+    upi_qr_url = case when p ? 'upi_qr_url' then public._write_text(p, 'upi_qr_url') else upi_qr_url end,
+    is_open = case when p ? 'is_open' then public._write_bool(p, 'is_open', is_open) else is_open end,
+    is_active = case when p ? 'is_active' then public._write_bool(p, 'is_active', is_active) else is_active end,
+    sale_policy = coalesce(public._write_text(p, 'sale_policy'), sale_policy),
+    track_stock = case when p ? 'track_stock' then public._write_bool(p, 'track_stock', track_stock) else track_stock end,
+    updated_at = now()
+  where id = v_store_id
+  returning * into v_store;
+
+  return to_jsonb(v_store);
+end;
+$$;
+
+create or replace function public.ensure_pos_customer(p_phone text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_phone text;
+  v_customer_id uuid;
+  v_name text;
+  v_orders integer;
+  v_loyalty integer;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  v_phone := regexp_replace(coalesce(p_phone, ''), '\s+', '', 'g');
+  if v_phone ~ '^[6-9][0-9]{9}$' then
+    v_phone := '+91' || v_phone;
+  end if;
+  if v_phone is null or v_phone = '' then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  insert into public.customers (phone)
+  values (v_phone)
+  on conflict (phone) do update set updated_at = now()
+  returning id, name into v_customer_id, v_name;
+
+  insert into public.store_customers (store_id, customer_id)
+  values (v_store_id, v_customer_id)
+  on conflict (store_id, customer_id) do update set updated_at = now();
+
+  select sc.total_orders, sc.loyalty_points
+    into v_orders, v_loyalty
+  from public.store_customers sc
+  where sc.store_id = v_store_id and sc.customer_id = v_customer_id;
+
+  return jsonb_build_object(
+    'customer_id', v_customer_id,
+    'phone', v_phone,
+    'name', v_name,
+    'total_orders', coalesce(v_orders, 0),
+    'loyalty_points', coalesce(v_loyalty, 0)
+  );
+end;
+$$;
+
+create or replace function public.pos_checkout(p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_store_id uuid := public.auth_store_id();
+  v_track boolean;
+  v_customer_id uuid;
+  v_items jsonb;
+  v_item jsonb;
+  v_method text;
+  v_paid numeric;
+  v_discount_type text;
+  v_discount_value numeric;
+  v_tax numeric;
+  v_notes text;
+  v_subtotal numeric := 0;
+  v_discount_amount numeric := 0;
+  v_total numeric := 0;
+  v_order_id uuid;
+  v_order_number bigint;
+  v_line_id uuid;
+  v_sp_id uuid;
+  v_qty integer;
+  v_unit_price numeric;
+  v_unit_mrp numeric;
+  v_line_total numeric;
+  v_avail integer;
+  v_need integer;
+  v_take integer;
+  v_phone text;
+  v_pharmacist uuid;
+  r record;
+  v_mp record;
+begin
+  if v_store_id is null then
+    raise exception 'STORE_REQUIRED';
+  end if;
+
+  begin
+    select coalesce(s.track_stock, true) into v_track
+    from public.stores s where s.id = v_store_id;
+  exception
+    when undefined_column then
+      v_track := true;
+  end;
+  if v_track is null then
+    v_track := true;
+  end if;
+
+  v_customer_id := nullif(p ->> 'customer_id', '')::uuid;
+  v_items := p -> 'items';
+  v_method := coalesce(public._write_text(p, 'payment_method'), 'cash');
+  v_paid := coalesce(public._write_num(p, 'paid_amount'), 0);
+  v_discount_type := coalesce(public._write_text(p, 'discount_type'), 'none');
+  v_discount_value := coalesce(public._write_num(p, 'discount_value'), 0);
+  v_tax := coalesce(public._write_num(p, 'tax_amount'), 0);
+  v_notes := public._write_text(p, 'notes');
+
+  if v_customer_id is null or v_items is null or jsonb_typeof(v_items) <> 'array' or jsonb_array_length(v_items) = 0 then
+    raise exception 'VALIDATION_ERROR';
+  end if;
+
+  if not exists (
+    select 1 from public.store_customers sc
+    where sc.store_id = v_store_id and sc.customer_id = v_customer_id
+  ) then
+    raise exception 'NOT_FOUND';
+  end if;
+
+  select c.phone into v_phone from public.customers c where c.id = v_customer_id;
+  select su.id into v_pharmacist
+  from public.store_users su
+  where su.auth_user_id = auth.uid() and su.store_id = v_store_id
+  limit 1;
+
+  for v_item in select * from jsonb_array_elements(v_items)
+  loop
+    v_sp_id := nullif(v_item ->> 'store_product_id', '')::uuid;
+    v_qty := public._write_int(v_item, 'quantity');
+    v_unit_price := public._write_num(v_item, 'unit_price');
+    if v_sp_id is null or v_qty is null or v_qty <= 0 or v_unit_price is null then
+      raise exception 'VALIDATION_ERROR';
+    end if;
+    if not exists (
+      select 1 from public.store_products sp
+      where sp.id = v_sp_id and sp.store_id = v_store_id and coalesce(sp.is_active, true)
+    ) then
+      raise exception 'NOT_FOUND';
+    end if;
+    if v_track then
+      select sp.available_quantity into v_avail
+      from public.store_products sp where sp.id = v_sp_id;
+      if coalesce(v_avail, 0) < v_qty then
+        raise exception 'INSUFFICIENT_STOCK';
+      end if;
+    end if;
+    v_subtotal := v_subtotal + (v_unit_price * v_qty);
+  end loop;
+
+  if v_discount_type = 'fixed' then
+    v_discount_amount := greatest(0, least(v_discount_value, v_subtotal));
+  elsif v_discount_type = 'percent' then
+    v_discount_amount := round(v_subtotal * greatest(0, least(v_discount_value, 100)) / 100.0, 2);
+  else
+    v_discount_amount := 0;
+  end if;
+  v_total := greatest(0, v_subtotal - v_discount_amount + coalesce(v_tax, 0));
+
+  insert into public.orders (
+    store_id, customer_id, pharmacist_user_id, source, status,
+    payment_method, payment_status, fulfillment_type,
+    subtotal, delivery_charge, discount_amount, total_amount,
+    customer_snapshot, address_snapshot, pricing_snapshot, notes, placed_at
+  ) values (
+    v_store_id, v_customer_id, v_pharmacist, 'pos', 'completed',
+    v_method,
+    case when v_method = 'credit' then 'pending' else 'paid' end,
+    'counter',
+    v_subtotal, 0, v_discount_amount, v_total,
+    jsonb_build_object('customer_id', v_customer_id, 'phone', v_phone),
+    '{}'::jsonb,
+    jsonb_build_object(
+      'subtotal', v_subtotal,
+      'discount_amount', v_discount_amount,
+      'tax_amount', v_tax,
+      'total_amount', v_total,
+      'payment_method', v_method,
+      'paid_amount', v_paid
+    ),
+    v_notes,
+    now()
+  )
+  returning id, order_number into v_order_id, v_order_number;
+
+  insert into public.order_status_history (order_id, from_status, to_status, actor_id, notes)
+  values (v_order_id, null, 'completed', v_pharmacist, 'POS sale');
+
+  for v_item in select * from jsonb_array_elements(v_items)
+  loop
+    v_sp_id := (v_item ->> 'store_product_id')::uuid;
+    v_qty := (v_item ->> 'quantity')::integer;
+    v_unit_price := (v_item ->> 'unit_price')::numeric;
+    v_unit_mrp := public._write_num(v_item, 'unit_mrp');
+    v_line_total := v_unit_price * v_qty;
+
+    select mp.name, mp.strength, mp.dosage_form, mp.image_url, mp.drug_schedule
+      into v_mp
+    from public.store_products sp
+    join public.master_products mp on mp.id = sp.product_id
+    where sp.id = v_sp_id;
+
+    insert into public.order_items (
+      order_id, store_product_id, quantity, unit_price, total_price, product_snapshot
+    ) values (
+      v_order_id, v_sp_id, v_qty, v_unit_price, v_line_total,
+      jsonb_build_object(
+        'name', v_mp.name,
+        'strength', v_mp.strength,
+        'dosage_form', v_mp.dosage_form,
+        'image_url', v_mp.image_url,
+        'unit_mrp', v_unit_mrp,
+        'drug_schedule', v_mp.drug_schedule
+      )
+    )
+    returning id into v_line_id;
+
+    if v_track then
+      v_need := v_qty;
+      for r in
+        select ib.id, (ib.available_quantity - ib.reserved_quantity) as free_qty
+        from public.inventory_batches ib
+        where ib.store_product_id = v_sp_id
+          and (ib.available_quantity - ib.reserved_quantity) > 0
+        order by ib.expires_at nulls last, ib.created_at
+        for update
+      loop
+        exit when v_need <= 0;
+        v_take := least(v_need, r.free_qty);
+        update public.inventory_batches set
+          available_quantity = available_quantity - v_take
+        where id = r.id;
+        insert into public.order_item_batches (order_item_id, batch_id, quantity)
+        values (v_line_id, r.id, v_take);
+        insert into public.inventory_transactions (
+          store_id, store_product_id, batch_id, type, quantity,
+          reference_type, reference_id, notes
+        ) values (
+          v_store_id, v_sp_id, r.id, 'sale', -v_take,
+          'order', v_order_id, null
+        );
+        v_need := v_need - v_take;
+      end loop;
+      if v_need > 0 then
+        raise exception 'INSUFFICIENT_STOCK';
+      end if;
+    end if;
+  end loop;
+
+  if v_method <> 'credit' and v_paid > 0 then
+    insert into public.payments (
+      store_id, order_id, customer_id, payment_direction, payment_type,
+      amount, method, status, paid_at
+    ) values (
+      v_store_id, v_order_id, v_customer_id, 'in', 'order',
+      least(v_paid, v_total), v_method, 'completed', now()
+    );
+  end if;
+
+  if v_method = 'credit' or v_paid < v_total then
+    update public.store_customers set
+      current_balance = current_balance + greatest(0, v_total - greatest(v_paid, 0)),
+      total_orders = coalesce(total_orders, 0) + 1,
+      total_spent = coalesce(total_spent, 0) + v_total,
+      last_order_at = now(),
+      updated_at = now()
+    where store_id = v_store_id and customer_id = v_customer_id;
+  else
+    update public.store_customers set
+      total_orders = coalesce(total_orders, 0) + 1,
+      total_spent = coalesce(total_spent, 0) + v_total,
+      last_order_at = now(),
+      updated_at = now()
+    where store_id = v_store_id and customer_id = v_customer_id;
+  end if;
+
+  return jsonb_build_object(
+    'order_id', v_order_id,
+    'order_number', v_order_number,
+    'total_amount', v_total,
+    'payment_method', v_method,
+    'customer_phone', v_phone,
+    'placed_at', now()
+  );
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Privileges: merchant table CRUD, anon listing RPCs only
 -- ---------------------------------------------------------------------------
@@ -2098,6 +2926,13 @@ grant execute on function public.get_pos_home(integer) to authenticated;
 grant execute on function public.search_pos_catalog(text, integer) to authenticated;
 grant execute on function public.list_store_inventory(text, uuid, text, text, text, text, text, integer, integer) to authenticated;
 grant execute on function public.get_store_dashboard_counts() to authenticated;
+grant execute on function public.create_custom_product(jsonb) to authenticated;
+grant execute on function public.add_system_product_to_store(uuid) to authenticated;
+grant execute on function public.update_store_listing(uuid, jsonb) to authenticated;
+grant execute on function public.adjust_stock(uuid, jsonb) to authenticated;
+grant execute on function public.update_store(jsonb) to authenticated;
+grant execute on function public.ensure_pos_customer(text) to authenticated;
+grant execute on function public.pos_checkout(jsonb) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Storage: public image bucket used by store logos / banners / UPI QR
@@ -2127,3 +2962,35 @@ for all
 to service_role
 using (bucket_id = 'med-images')
 with check (bucket_id = 'med-images');
+
+-- v1 app: staff can upload product images under {store_id}/products/…
+-- (Next store/images only allows kind logo|banner|upi_qr — not product.)
+drop policy if exists "Staff upload store product images" on storage.objects;
+create policy "Staff upload store product images"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'med-images'
+  and public.auth_store_id() is not null
+  and (storage.foldername(name))[1] = public.auth_store_id()::text
+  and (storage.foldername(name))[2] = 'products'
+);
+
+drop policy if exists "Staff update store product images" on storage.objects;
+create policy "Staff update store product images"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'med-images'
+  and public.auth_store_id() is not null
+  and (storage.foldername(name))[1] = public.auth_store_id()::text
+  and (storage.foldername(name))[2] = 'products'
+)
+with check (
+  bucket_id = 'med-images'
+  and public.auth_store_id() is not null
+  and (storage.foldername(name))[1] = public.auth_store_id()::text
+  and (storage.foldername(name))[2] = 'products'
+);

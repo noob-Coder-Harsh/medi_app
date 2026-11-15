@@ -46,9 +46,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('MediSync'), findsOneWidget);
-    expect(find.text(t('STORE_LOGIN_TAGLINE')), findsOneWidget);
+    expect(find.text('MediSync'), findsNothing);
+    expect(find.text(t('STORE_LOGIN_TAGLINE')), findsNothing);
     expect(find.text(t('STORE_LOGIN_TITLE')), findsOneWidget);
+    expect(find.text(t('STORE_LOGIN_SUBTITLE')), findsOneWidget);
     expect(find.text(t('STORE_SIGN_IN')), findsOneWidget);
     expect(find.text(t('AUTH_FORGOT_PASSWORD')), findsOneWidget);
     expect(find.text(t('STORE_CREATE_ONE')), findsOneWidget);

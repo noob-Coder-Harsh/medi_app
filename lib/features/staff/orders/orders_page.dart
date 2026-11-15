@@ -220,7 +220,17 @@ class _StaffOrdersPageState extends ConsumerState<StaffOrdersPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.items.isEmpty) {
-      return EmptyListBody(message: t('STORE_FORM.ORDERS_NO_RESULTS'));
+      final hasFilters = state.status != 'all' ||
+          state.source != 'all' ||
+          state.query.trim().isNotEmpty;
+      return EmptyListBody(
+        icon: Icons.receipt_long_outlined,
+        message: t(
+          hasFilters
+              ? 'STORE_FORM.ORDERS_NO_RESULTS'
+              : 'STORE_FORM.ORDERS_EMPTY',
+        ),
+      );
     }
 
     return ListView.separated(

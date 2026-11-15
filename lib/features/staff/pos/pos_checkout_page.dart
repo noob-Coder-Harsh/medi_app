@@ -13,9 +13,8 @@ import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/api_client.dart';
 import '../../../data/models/pos_checkout.dart';
-import '../../../data/staff_api_client.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../../account/customer_auth.dart';
-import '../auth/staff_session.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
 import '../store_settings/store_settings_controller.dart';
@@ -278,14 +277,16 @@ class _PosCheckoutPageState extends ConsumerState<PosCheckoutPage> {
     return null;
   }
 
-  String? _validate(List<PosCartItem> items) {
+  String? _validate(List<PosCartItem> items, {required bool trackStock}) {
     if (items.isEmpty) return t('STORE_FORM.POS_VALIDATION_CART');
     final phone = normalizeIndianMobile(_phone.text);
     if (phone == null) return t('STORE_FORM.POS_VALIDATION_CUSTOMER');
-    final overStock = items.any(
-      (PosCartItem item) => item.quantity > item.product.stockCount,
-    );
-    if (overStock) return t('STORE_FORM.POS_VALIDATION_STOCK');
+    if (trackStock) {
+      final overStock = items.any(
+        (PosCartItem item) => item.quantity > item.product.stockCount,
+      );
+      if (overStock) return t('STORE_FORM.POS_VALIDATION_STOCK');
+    }
     if (_method != PosPaymentMethod.credit && _parseCollect() <= 0) {
       return t('STORE_FORM.POS_VALIDATION_COLLECT');
     }
@@ -299,30 +300,29 @@ class _PosCheckoutPageState extends ConsumerState<PosCheckoutPage> {
     double discount,
   ) async {
     setState(() => _error = null);
-    final validation = _validate(items);
+    final trackStock =
+        ref.read(storeSettingsProvider).store?.trackStock ?? true;
+    final validation = _validate(items, trackStock: trackStock);
     if (validation != null) {
       setState(() => _error = validation);
       return;
     }
 
     final phone = normalizeIndianMobile(_phone.text)!;
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) {
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) {
       setState(() => _error = t('AUTH_SUPABASE_MISSING'));
       return;
     }
 
     setState(() => _busy = true);
     try {
-      final api = ref.read(staffWriteApiProvider);
       final customer =
-          _customer ??
-          await api.ensureCustomer(accessToken: token, phone: phone);
+          _customer ?? await writes.ensurePosCustomer(phone);
       _customer = customer;
 
-      final result = await api.checkout(
-        accessToken: token,
-        input: PosCheckoutInput(
+      final result = await writes.posCheckout(
+        PosCheckoutInput(
           customerId: customer.customerId,
           items: items
               .map(

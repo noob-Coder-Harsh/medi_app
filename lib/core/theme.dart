@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'app_colors.dart';
 import 'brand.dart';
 import 'i18n.dart';
 
@@ -20,11 +21,11 @@ abstract final class AppTheme {
   /// Default AppBar strip background.
   static const appBarBackgroundAsset = 'assets/images/appbar.png';
 
-  static const Color ink = Color(0xFF0F172A);
-  static const Color hairlineColor = Color(0xFFD7E0DC);
-  static const Color amber = Color(0xFFD97706);
-  static const Color error = Color(0xFFDC2626);
-  static const Color onTeal = Color(0xFFFFFFFF);
+  static const Color ink = AppColors.ink;
+  static const Color hairlineColor = AppColors.hairline;
+  static const Color amber = AppColors.amber;
+  static const Color error = AppColors.error;
+  static const Color onTeal = AppColors.onPrimary;
 
   /// AppBar flexibleSpace that paints [appBarBackgroundAsset].
   static Widget appBarBackground() {
@@ -58,14 +59,14 @@ abstract final class AppTheme {
 
   static ThemeData light([AppLocale locale = AppLocale.en]) {
     final colorScheme = ColorScheme.light(
-      primary: Brand.themeColor,
-      onPrimary: onTeal,
-      secondary: Brand.themeColor,
-      onSecondary: onTeal,
-      surface: Brand.themeBackground,
-      onSurface: ink,
-      error: error,
-      onError: onTeal,
+      primary: AppColors.primary,
+      onPrimary: AppColors.onPrimary,
+      secondary: AppColors.secondary,
+      onSecondary: AppColors.onPrimary,
+      surface: AppColors.pageBg,
+      onSurface: AppColors.ink,
+      error: AppColors.error,
+      onError: AppColors.onPrimary,
     );
 
     final textTheme = _textTheme(locale, colorScheme);

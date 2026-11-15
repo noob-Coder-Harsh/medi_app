@@ -18,8 +18,8 @@ export const BRAND = {
   TAGLINE: "Enable local pharmacies to accept online orders in 1 hour",
   CUSTOMER_TAGLINE: "Your Health, Our Priority",
   THEME: {
-    COLOR: "#0f766e",
-    BACKGROUND: "#f7faf9",
+    COLOR: "#00a896",
+    BACKGROUND: "#f0fdfa",
   },
   SHORT_DESCRIPTION: "Online pharmacy ordering platform for local medical stores",
   LONG_DESCRIPTION:

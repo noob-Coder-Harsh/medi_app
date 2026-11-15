@@ -29,7 +29,7 @@ class _MediAppState extends ConsumerState<MediApp> {
   void initState() {
     super.initState();
     _router = widget.router ?? appRouter;
-    if (widget.enableDeepLinks && widget.router == null) {
+    if (widget.enableDeepLinks) {
       _deepLinks = DeepLinkController(router: _router);
       // ignore: discarded_futures
       _deepLinks!.start();

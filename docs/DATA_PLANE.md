@@ -11,12 +11,19 @@ READ  (catalog, search, nearby, PDP, cart hydrate, POS seed, inventory page, das
       Flutter  →  Supabase RPC  →  ListingCard JSON
       (anon key for customer listing; owner JWT for staff listing)
 
-WRITE (orders, stock, purchases, customers, settings, addresses, …)
+WRITE (v1 catalog + POS)
+      Flutter  →  Supabase write RPCs (`create_custom_product`, `adjust_stock`,
+                  `update_store_listing`, `update_store`, `ensure_pos_customer`,
+                  `pos_checkout`, …)  →  Postgres
+      See [WRITE_RPCS.md](./WRITE_RPCS.md). Catalog owns pricing/stock; `stores.track_stock`
+      gates oversell. No dedicated inventory page in v1.
+
+WRITE (images, purchases/returns/settlements, online customer)
       Flutter  →  Next /api/app/*  →  existing services  →  Postgres
       Customer:  Authorization: Bearer <Firebase idToken>
-      Staff:     Authorization: Bearer <Supabase access_token>
+      Staff images: Authorization: Bearer <Supabase access_token>
 
-NEVER from the Flutter client: table INSERT / UPDATE / DELETE on business tables.
+NEVER: raw multi-table INSERT chains from Flutter when a write RPC exists.
 NEVER: service-role key in the app.
 ```
 

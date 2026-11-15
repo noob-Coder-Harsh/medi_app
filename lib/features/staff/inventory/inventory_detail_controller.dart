@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/inventory_repository.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/listing.dart';
-import '../../../data/staff_api_client.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../auth/staff_session.dart';
 
 class InventoryDetailState {
@@ -90,15 +90,14 @@ class InventoryDetailController extends Notifier<InventoryDetailState> {
   }
 
   Future<String?> saveListing(UpdateStoreProductInput input) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
     state = state.copyWith(busy: true, clearError: true);
     try {
-      await ref.read(staffWriteApiProvider).updateStoreProduct(
-            accessToken: token,
-            storeProductId: storeProductId,
-            input: input,
-          );
+      await writes.updateStoreListing(
+        storeProductId: storeProductId,
+        input: input,
+      );
       state = state.copyWith(busy: false);
       await refresh();
       return null;
@@ -109,15 +108,30 @@ class InventoryDetailController extends Notifier<InventoryDetailState> {
   }
 
   Future<String?> addOpeningBatch(OpeningBatchInput input) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
+    return adjustStock(
+      AdjustStockInput(
+        direction: 'add',
+        quantity: input.quantity,
+        reason: 'opening',
+        batchNo: input.batchNo,
+        mrp: input.mrp,
+        sellingPrice: input.sellingPrice,
+        purchasePrice: input.purchasePrice,
+        manufacturedAt: input.manufacturedAt,
+        expiresAt: input.expiresAt,
+      ),
+    );
+  }
+
+  Future<String?> adjustStock(AdjustStockInput input) async {
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
     state = state.copyWith(busy: true, clearError: true);
     try {
-      await ref.read(staffWriteApiProvider).addProductBatch(
-            accessToken: token,
-            storeProductId: storeProductId,
-            input: input,
-          );
+      await writes.adjustStock(
+        storeProductId: storeProductId,
+        input: input,
+      );
       state = state.copyWith(busy: false);
       await refresh();
       return null;
@@ -131,23 +145,17 @@ class InventoryDetailController extends Notifier<InventoryDetailState> {
     required String batchId,
     required double sellingPrice,
   }) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
+    // v1: price changes go through listing update when not tracking batches;
+    // with batches, prefer manage-stock add with updated selling price.
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
     state = state.copyWith(busy: true, clearError: true);
     try {
-      final updated = await ref.read(staffWriteApiProvider).updateProductBatch(
-            accessToken: token,
-            storeProductId: storeProductId,
-            batchId: batchId,
-            patch: <String, Object?>{'selling_price': sellingPrice},
-          );
-      final batches = state.batches
-          .map(
-            (InventoryBatch batch) =>
-                batch.id == batchId ? updated : batch,
-          )
-          .toList(growable: false);
-      state = state.copyWith(busy: false, batches: batches, clearError: true);
+      await writes.updateStoreListing(
+        storeProductId: storeProductId,
+        input: UpdateStoreProductInput(listingSellingPrice: sellingPrice),
+      );
+      state = state.copyWith(busy: false, clearError: true);
       await refresh();
       return null;
     } catch (error) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_colors.dart';
 import 'env.dart';
 
 /// Product identity from `docs/web-source/brand.ts`.
@@ -16,8 +17,12 @@ abstract final class Brand {
   static const longDescription =
       'MediSync empowers local pharmacies to start accepting online orders without requiring technical knowledge. Get a dedicated online storefront, QR code ordering, product catalog, and order dashboard.';
 
-  static const Color themeColor = Color(0xFF0F766E);
-  static const Color themeBackground = Color(0xFFF7FAF9);
+  /// Primary mark used for launcher, splash, and in-app branding.
+  static const logoAsset = 'assets/images/app_logo.png';
+
+  static const Color themeColor = AppColors.primary;
+  static const Color themeBackground = AppColors.pageBg;
+  static const Color splashBackground = AppColors.secondary;
 
   static const contact = BrandContact();
   static const operator = BrandOperator();
@@ -31,6 +36,50 @@ abstract final class Brand {
   static String metaDescription(String description) {
     if (description.length <= 160) return description;
     return '${description.substring(0, 157)}...';
+  }
+}
+
+/// Shared MediSync mark for location, auth, and empty store logos.
+class BrandLogo extends StatelessWidget {
+  const BrandLogo({
+    super.key,
+    this.size = 72,
+    this.showName = false,
+    this.nameStyle,
+    this.gap = 12,
+  });
+
+  final double size;
+  final bool showName;
+  final TextStyle? nameStyle;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) {
+    final logo = ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.22),
+      child: Image.asset(
+        Brand.logoAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+      ),
+    );
+
+    if (!showName) return logo;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        logo,
+        SizedBox(height: gap),
+        Text(
+          Brand.appName,
+          style: nameStyle ?? Theme.of(context).textTheme.titleLarge,
+        ),
+      ],
+    );
   }
 }
 

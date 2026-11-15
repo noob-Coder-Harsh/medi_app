@@ -13,11 +13,12 @@ Copied **31 October 2026**. Product shape is locked. Execution playbook is locke
 2. [STOREFRONT_PLAN.md](./STOREFRONT_PLAN.md) — customer screens, fetch intents, card, cart vs checkout
 3. [BUILD_PLAN.md](./BUILD_PLAN.md) — **one step per agent session**, stack, folders, 30 steps
 4. [DATA_PLANE.md](./DATA_PLANE.md) — same RPCs as web, reads vs writes, pagination
-5. [WEB_PROJECT.md](./WEB_PROJECT.md) — what it is, who it is for, purpose, scope, ideal product
-6. [ARCHITECTURE.md](./ARCHITECTURE.md) — stack, auth, data plane, schema map, RPCs, modules, screens
-7. [ui-ux-research.md](./ui-ux-research.md) — phone-first IA, language, visual tokens, current web gaps
-8. [BRAND_CONFIG_RULES.md](./BRAND_CONFIG_RULES.md) — identity lives in brand config, chrome in locale files
-9. [web-source/Ecommerce-knowledge.txt](./web-source/Ecommerce-knowledge.txt) — intent-driven catalog (do not dump SKUs)
+5. [WRITE_RPCS.md](./WRITE_RPCS.md) — v1 staff write RPCs (catalog stock + POS)
+6. [WEB_PROJECT.md](./WEB_PROJECT.md) — what it is, who it is for, purpose, scope, ideal product
+7. [ARCHITECTURE.md](./ARCHITECTURE.md) — stack, auth, data plane, schema map, RPCs, modules, screens
+8. [ui-ux-research.md](./ui-ux-research.md) — phone-first IA, language, visual tokens, current web gaps
+9. [BRAND_CONFIG_RULES.md](./BRAND_CONFIG_RULES.md) — identity lives in brand config, chrome in locale files
+10. [web-source/Ecommerce-knowledge.txt](./web-source/Ecommerce-knowledge.txt) — intent-driven catalog (do not dump SKUs)
 
 ## Copied web contracts (`web-source/`)
 

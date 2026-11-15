@@ -40,6 +40,7 @@ class StaffStore {
     this.acceptsOnlineOrders = false,
     this.salePolicy = 'loose_allowed',
     this.onboardingCompleted = false,
+    this.trackStock = true,
   });
 
   final String id;
@@ -80,6 +81,7 @@ class StaffStore {
   final bool acceptsOnlineOrders;
   final String salePolicy;
   final bool onboardingCompleted;
+  final bool trackStock;
 
   factory StaffStore.fromJson(Map<String, Object?> row) {
     return StaffStore(
@@ -122,6 +124,7 @@ class StaffStore {
       acceptsOnlineOrders: asBoolean(row['accepts_online_orders']),
       salePolicy: asString(row['sale_policy'], 'loose_allowed'),
       onboardingCompleted: asBoolean(row['onboarding_completed']),
+      trackStock: asBoolean(row['track_stock'], true),
     );
   }
 
@@ -169,6 +172,7 @@ class UpdateStoreInput {
     this.isOpen,
     this.isActive,
     this.salePolicy,
+    this.trackStock,
   });
 
   final String? name;
@@ -204,6 +208,7 @@ class UpdateStoreInput {
   final bool? isOpen;
   final bool? isActive;
   final String? salePolicy;
+  final bool? trackStock;
 
   Map<String, Object?> toJson() {
     final out = <String, Object?>{};
@@ -244,6 +249,7 @@ class UpdateStoreInput {
     put('is_open', isOpen);
     put('is_active', isActive);
     put('sale_policy', salePolicy);
+    put('track_stock', trackStock);
     return out;
   }
 }

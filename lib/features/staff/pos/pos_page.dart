@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/brand.dart';
+import '../../../core/empty_list.dart';
 import '../../../core/format.dart';
 import '../../../core/i18n.dart';
 import '../../../core/routes.dart';
@@ -219,14 +220,21 @@ class _PosPageState extends ConsumerState<PosPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (products.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            t('STORE_FORM.POS_NO_PRODUCTS'),
-            textAlign: TextAlign.center,
-          ),
+      final trulyEmpty = catalog.products.isEmpty;
+      return EmptyListBody(
+        icon: Icons.point_of_sale_outlined,
+        message: t(
+          trulyEmpty
+              ? 'STORE_FORM.POS_NO_PRODUCTS'
+              : 'STORE_FORM.POS_NO_MATCH',
         ),
+        action: trulyEmpty
+            ? FilledButton.icon(
+                onPressed: () => context.go(Routes.staffMedicines),
+                icon: const Icon(Icons.add, size: 20),
+                label: Text(t('STORE_FORM.ADD_PRODUCT')),
+              )
+            : null,
       );
     }
 

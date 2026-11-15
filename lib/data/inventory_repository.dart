@@ -75,7 +75,11 @@ class InventoryRepository {
       description: asNullableString(master['description']),
       thumb: asNullableString(master['image_url']),
       imageUrl: asNullableString(master['image_url']),
-      packLabel: 'Unit',
+      packLabel: _packLabel(
+        asNullableString(master['base_unit']),
+        asNullableString(master['primary_pack_type']),
+        asNullableNumber(master['primary_pack_quantity']),
+      ),
       baseUnit: asNullableString(master['base_unit']),
       primaryPackType: asNullableString(master['primary_pack_type']),
       primaryPackQuantity: asNullableNumber(master['primary_pack_quantity']),
@@ -110,6 +114,16 @@ class InventoryRepository {
       createdAt: asString(row['created_at']),
       updatedAt: asString(row['updated_at']),
     );
+  }
+
+  static String _packLabel(String? base, String? packType, double? packQty) {
+    if (packType != null && packQty != null && packQty > 1 && base != null) {
+      final qty = packQty == packQty.roundToDouble()
+          ? '${packQty.round()}'
+          : '$packQty';
+      return '$qty $base / $packType';
+    }
+    return base ?? 'Unit';
   }
 }
 

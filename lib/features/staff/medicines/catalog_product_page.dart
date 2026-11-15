@@ -10,10 +10,10 @@ import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/listing.dart';
-import '../inventory/add_batch_sheet.dart';
 import '../inventory/inventory_detail_controller.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
+import 'manage_stock_sheet.dart';
 
 class CatalogProductPage extends ConsumerWidget {
   const CatalogProductPage({super.key, required this.storeProductId});
@@ -33,41 +33,7 @@ class CatalogProductPage extends ConsumerWidget {
               staffBack(context, fallback: Routes.staffMedicines),
         ),
         title: state.product?.name ?? t('STORE_FORM.MEDICINES_TITLE'),
-        actions: <Widget>[
-          if (state.product != null)
-            TextButton(
-              onPressed: () => context.push(
-                Routes.staffMedicinesProductEdit(storeProductId),
-              ),
-              child: Text(
-                t('STORE_FORM.CATALOG_EDIT_META'),
-                style: const TextStyle(color: AppTheme.onTeal),
-              ),
-            ),
-          StaffAppBarAction.refresh(
-            onPressed: () => ref
-                .read(inventoryDetailProvider(storeProductId).notifier)
-                .refresh(),
-          ),
-        ],
       ),
-      floatingActionButton: state.allowsOpeningStock && state.product != null
-          ? FloatingActionButton.extended(
-              onPressed: () async {
-                final created = await showAddBatchSheet(
-                  context,
-                  storeProductId: storeProductId,
-                  product: state.product!,
-                );
-                if (!context.mounted || !created) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(t('STORE_FORM.ADD_BATCH'))),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: Text(t('STORE_FORM.ADD_BATCH')),
-            )
-          : null,
       body: state.loading && state.product == null
           ? const Center(child: CircularProgressIndicator())
           : state.product == null
@@ -101,11 +67,28 @@ class _CatalogProductBody extends ConsumerWidget {
       builder: (BuildContext context, BoxConstraints constraints) {
         final wide = constraints.maxWidth >= 600;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: <Widget>[
             _HeroCard(
               product: product,
               allowsOpening: state.allowsOpeningStock,
+              busy: state.busy,
+              onEdit: () => context.push(
+                Routes.staffMedicinesProductEdit(storeProductId),
+              ),
+              onManageStock: () async {
+                final saved = await showManageStockSheet(
+                  context,
+                  storeProductId: storeProductId,
+                  product: product,
+                );
+                if (!context.mounted || !saved) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(t('STORE_FORM.MANAGE_STOCK_SAVED')),
+                  ),
+                );
+              },
             ),
             if (state.error != null) ...<Widget>[
               const SizedBox(height: 8),
@@ -202,15 +185,6 @@ class _CatalogProductBody extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: state.busy
-                  ? null
-                  : () => context.push(
-                        Routes.staffMedicinesProductEdit(storeProductId),
-                      ),
-              child: Text(t('STORE_FORM.CATALOG_EDIT_META')),
-            ),
             const SizedBox(height: 20),
             Text(
               t('STORE_FORM.STOCK_BATCHES'),
@@ -249,10 +223,19 @@ class _CatalogProductBody extends ConsumerWidget {
 }
 
 class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.product, required this.allowsOpening});
+  const _HeroCard({
+    required this.product,
+    required this.allowsOpening,
+    required this.busy,
+    required this.onEdit,
+    required this.onManageStock,
+  });
 
   final ListingCard product;
   final bool allowsOpening;
+  final bool busy;
+  final VoidCallback onEdit;
+  final VoidCallback onManageStock;
 
   @override
   Widget build(BuildContext context) {
@@ -285,6 +268,26 @@ class _HeroCard extends StatelessWidget {
                       : _Initials(product.name),
                 ),
               ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: busy ? null : onEdit,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: Text(t('STORE_FORM.EDIT_PRODUCT')),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : onManageStock,
+                    icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                    label: Text(t('STORE_FORM.MANAGE_STOCK')),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Wrap(

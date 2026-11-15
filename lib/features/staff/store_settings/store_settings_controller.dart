@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/staff_store.dart';
-import '../../../data/staff_api_client.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../../../data/store_settings_repository.dart';
 import '../auth/staff_session.dart';
 
@@ -76,15 +76,12 @@ class StoreSettingsController extends Notifier<StoreSettingsState> {
   }
 
   Future<String?> save(UpdateStoreInput input) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
 
     state = state.copyWith(busy: true, saved: false, clearError: true);
     try {
-      final updated = await ref.read(staffWriteApiProvider).updateStore(
-            accessToken: token,
-            input: input,
-          );
+      final updated = await writes.updateStore(input);
       state = state.copyWith(
         busy: false,
         store: updated,

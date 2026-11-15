@@ -172,6 +172,8 @@ class CreateCustomProductInput {
     this.primaryPackQuantity,
     this.requiresPrescription = false,
     this.description,
+    this.imageUrl,
+    this.isFeatured = false,
   });
 
   final String categoryId;
@@ -186,6 +188,42 @@ class CreateCustomProductInput {
   final int? primaryPackQuantity;
   final bool requiresPrescription;
   final String? description;
+  final String? imageUrl;
+  final bool isFeatured;
+
+  CreateCustomProductInput copyWith({
+    String? categoryId,
+    String? name,
+    OpeningBatchInput? openingBatch,
+    String? genericName,
+    String? manufacturer,
+    String? strength,
+    String? dosageForm,
+    String? baseUnit,
+    String? primaryPackType,
+    int? primaryPackQuantity,
+    bool? requiresPrescription,
+    String? description,
+    String? imageUrl,
+    bool? isFeatured,
+  }) {
+    return CreateCustomProductInput(
+      categoryId: categoryId ?? this.categoryId,
+      name: name ?? this.name,
+      openingBatch: openingBatch ?? this.openingBatch,
+      genericName: genericName ?? this.genericName,
+      manufacturer: manufacturer ?? this.manufacturer,
+      strength: strength ?? this.strength,
+      dosageForm: dosageForm ?? this.dosageForm,
+      baseUnit: baseUnit ?? this.baseUnit,
+      primaryPackType: primaryPackType ?? this.primaryPackType,
+      primaryPackQuantity: primaryPackQuantity ?? this.primaryPackQuantity,
+      requiresPrescription: requiresPrescription ?? this.requiresPrescription,
+      description: description ?? this.description,
+      imageUrl: imageUrl ?? this.imageUrl,
+      isFeatured: isFeatured ?? this.isFeatured,
+    );
+  }
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
@@ -200,6 +238,8 @@ class CreateCustomProductInput {
       'primary_pack_quantity': primaryPackQuantity,
       'requires_prescription': requiresPrescription,
       'description': _emptyToNull(description),
+      'image_url': _emptyToNull(imageUrl),
+      'is_featured': isFeatured,
       'opening_batch': openingBatch.toJson(),
     };
   }

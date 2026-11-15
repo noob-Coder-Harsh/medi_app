@@ -178,30 +178,11 @@ class _LocationScreenState extends ConsumerState<LocationScreen> {
                 onPointerDown: (_) => _armStaffEntry(),
                 onPointerUp: (_) => _cancelStaffEntry(),
                 onPointerCancel: (_) => _cancelStaffEntry(),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: Brand.themeColor,
-                        borderRadius: AppTheme.borderRadius,
-                      ),
-                      child: const SizedBox(
-                        width: 72,
-                        height: 72,
-                        child: Icon(
-                          Icons.local_pharmacy_outlined,
-                          color: AppTheme.onTeal,
-                          size: 40,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      Brand.appName,
-                      style: textTheme.titleLarge,
-                    ),
-                  ],
+                child: BrandLogo(
+                  size: 88,
+                  showName: true,
+                  gap: 16,
+                  nameStyle: textTheme.titleLarge,
                 ),
               ),
               const SizedBox(height: 32),

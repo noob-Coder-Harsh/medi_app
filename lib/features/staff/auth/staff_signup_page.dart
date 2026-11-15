@@ -53,6 +53,12 @@ class _StaffSignupPageState extends ConsumerState<StaffSignupPage> {
       });
     }
 
+    if (!session.ready || session.isSignedIn) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return StaffAuthShell(
       title: t('STORE_SIGNUP_TITLE'),
       subtitle: t('STORE_SIGNUP_SUBTITLE'),

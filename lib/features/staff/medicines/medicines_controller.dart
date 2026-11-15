@@ -1,10 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/catalog_repository.dart';
 import '../../../data/models/catalog_product.dart';
-import '../../../data/staff_api_client.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../auth/staff_session.dart';
 import '../inventory/inventory_controller.dart';
 
@@ -61,6 +62,8 @@ class MedicinesController extends Notifier<MedicinesState> {
 
   CatalogRepository? get _repo => ref.read(catalogRepositoryProvider);
 
+  StaffWriteRpc? get _writes => ref.read(staffWriteRpcProvider);
+
   void setQuery(String raw) {
     state = state.copyWith(query: raw, clearError: true);
     _debounce?.cancel();
@@ -102,18 +105,13 @@ class MedicinesController extends Notifier<MedicinesState> {
 
   Future<String?> addToStore(CatalogProduct product) async {
     if (product.isInStore) return null;
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) {
-      return 'AUTH_SUPABASE_MISSING';
-    }
+    final writes = _writes;
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
 
     final nextAdding = Set<String>.from(state.addingIds)..add(product.id);
     state = state.copyWith(addingIds: nextAdding, clearError: true);
     try {
-      await ref.read(staffWriteApiProvider).addCatalogProduct(
-            accessToken: token,
-            productId: product.id,
-          );
+      await writes.addSystemProductToStore(product.id);
       final catalog = state.catalog
           .map(
             (CatalogProduct row) => row.id == product.id
@@ -132,21 +130,39 @@ class MedicinesController extends Notifier<MedicinesState> {
     }
   }
 
-  Future<String?> createCustom(CreateCustomProductInput input) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) {
-      return 'AUTH_SUPABASE_MISSING';
-    }
+  Future<String?> createCustom(
+    CreateCustomProductInput input, {
+    List<int>? imageBytes,
+    String imageFilename = 'product.jpg',
+  }) async {
+    final writes = _writes;
+    if (writes == null) return 'AUTH_SUPABASE_MISSING';
+
     state = state.copyWith(busyWrite: true, clearError: true);
     try {
-      await ref.read(staffWriteApiProvider).createCustomCatalogProduct(
-            accessToken: token,
-            input: input,
-          );
+      var payload = input;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        final storeId = _storeId;
+        if (storeId == null || storeId.isEmpty) {
+          state = state.copyWith(busyWrite: false);
+          return 'STORE_REQUIRED';
+        }
+        // Next store/images rejects kind=product ("invalid asset type").
+        // Upload straight to med-images under {storeId}/products/.
+        final imageUrl = await writes.uploadProductImage(
+          storeId: storeId,
+          bytes: imageBytes,
+          filename: imageFilename,
+        );
+        payload = input.copyWith(imageUrl: imageUrl);
+      }
+
+      await writes.createCustomProduct(payload);
       state = state.copyWith(busyWrite: false);
       ref.invalidate(inventoryListProvider);
       return null;
-    } catch (error) {
+    } catch (error, stack) {
+      debugPrint('MedicinesController.createCustom failed: $error\n$stack');
       state = state.copyWith(busyWrite: false, error: '$error');
       return '$error';
     }

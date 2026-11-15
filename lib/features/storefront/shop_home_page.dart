@@ -370,12 +370,12 @@ class _Logo extends StatelessWidget {
         child: ClipRRect(
           borderRadius: AppTheme.borderRadius,
           child: url == null || url!.isEmpty
-              ? const Icon(Icons.local_pharmacy_outlined)
+              ? Image.asset(Brand.logoAsset, fit: BoxFit.cover)
               : CachedNetworkImage(
                   imageUrl: url!,
                   fit: BoxFit.cover,
                   errorWidget: (BuildContext context, String _, Object __) {
-                    return const Icon(Icons.local_pharmacy_outlined);
+                    return Image.asset(Brand.logoAsset, fit: BoxFit.cover);
                   },
                 ),
         ),

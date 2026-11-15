@@ -135,10 +135,12 @@ class _OtpSheetState extends ConsumerState<OtpSheet> {
                 onTapCancel: () => _logoHold?.cancel(),
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    Brand.appName,
+                  child: BrandLogo(
                     key: const Key('otp-logo'),
-                    style: Theme.of(context).textTheme.titleMedium,
+                    size: 48,
+                    showName: true,
+                    gap: 8,
+                    nameStyle: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
               ),

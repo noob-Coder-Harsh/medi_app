@@ -90,6 +90,7 @@ class StoreOnboardingService {
                 'gst_number': _optional(input.gstNumber),
               if (_optional(input.drugLicenseNumber) != null)
                 'drug_license_number': _optional(input.drugLicenseNumber),
+              'track_stock': input.trackStock,
             })
             .select('id, slug')
             .single();

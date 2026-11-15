@@ -114,6 +114,7 @@ class OpeningBatchInput {
 class UpdateStoreProductInput {
   const UpdateStoreProductInput({
     this.isActive,
+    this.isFeatured,
     this.salePolicy,
     this.rackLocation,
     this.reorderLevel,
@@ -127,11 +128,13 @@ class UpdateStoreProductInput {
     this.primaryPackType,
     this.primaryPackQuantity,
     this.requiresPrescription,
+    this.imageUrl,
     this.listingMrp,
     this.listingSellingPrice,
   });
 
   final bool? isActive;
+  final bool? isFeatured;
   final String? salePolicy;
   final String? rackLocation;
   final int? reorderLevel;
@@ -145,12 +148,14 @@ class UpdateStoreProductInput {
   final String? primaryPackType;
   final int? primaryPackQuantity;
   final bool? requiresPrescription;
+  final String? imageUrl;
   final double? listingMrp;
   final double? listingSellingPrice;
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
       if (isActive != null) 'is_active': isActive,
+      if (isFeatured != null) 'is_featured': isFeatured,
       if (salePolicy != null) 'sale_policy': salePolicy,
       if (rackLocation != null) 'rack_location': rackLocation,
       if (reorderLevel != null) 'reorder_level': reorderLevel,
@@ -166,6 +171,7 @@ class UpdateStoreProductInput {
         'primary_pack_quantity': primaryPackQuantity,
       if (requiresPrescription != null)
         'requires_prescription': requiresPrescription,
+      if (imageUrl != null) 'image_url': imageUrl,
       if (listingMrp != null) 'listing_mrp': listingMrp,
       if (listingSellingPrice != null)
         'listing_selling_price': listingSellingPrice,

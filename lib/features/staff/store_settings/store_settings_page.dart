@@ -51,6 +51,7 @@ class _StoreSettingsPageState extends ConsumerState<StoreSettingsPage> {
   bool _allowPrescription = false;
   bool _isOpen = true;
   bool _isActive = true;
+  bool _trackStock = true;
   String _salePolicy = 'loose_allowed';
   String? _boundStoreId;
 
@@ -119,6 +120,7 @@ class _StoreSettingsPageState extends ConsumerState<StoreSettingsPage> {
     _allowPrescription = store.allowPrescriptionUpload;
     _isOpen = store.isOpen;
     _isActive = store.isActive;
+    _trackStock = store.trackStock;
     _salePolicy = store.salePolicy;
   }
 
@@ -163,6 +165,7 @@ class _StoreSettingsPageState extends ConsumerState<StoreSettingsPage> {
       isOpen: _isOpen,
       isActive: _isActive,
       salePolicy: _salePolicy,
+      trackStock: _trackStock,
     );
   }
 
@@ -282,6 +285,16 @@ class _StoreSettingsPageState extends ConsumerState<StoreSettingsPage> {
                       onChanged: state.busy
                           ? null
                           : (bool value) => setState(() => _isActive = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(t('STORE_FORM.TRACK_STOCK')),
+                      subtitle: Text(t('STORE_FORM.TRACK_STOCK_HINT')),
+                      value: _trackStock,
+                      onChanged: state.busy
+                          ? null
+                          : (bool value) =>
+                              setState(() => _trackStock = value),
                     ),
                     const SizedBox(height: 16),
                     _section(

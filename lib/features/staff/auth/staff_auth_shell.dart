@@ -30,7 +30,22 @@ class StaffAuthShell extends ConsumerWidget {
 
     return Scaffold(
       appBar: MediAppBar(
-        titleText: Brand.appName,
+        title: Row(
+          children: <Widget>[
+            const BrandLogo(size: 28),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                Brand.appName,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: AppTheme.onTeal,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: t('AUTH_BACK_CUSTOMER'),

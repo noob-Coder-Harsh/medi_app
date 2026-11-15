@@ -26,7 +26,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(Brand.appName), findsOneWidget);
+    expect(find.text(Brand.appName), findsNothing);
     expect(find.text('Store Owner Login'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
   });
@@ -42,7 +42,8 @@ void main() {
     expect(app.theme!.scaffoldBackgroundColor, Colors.transparent);
 
     final ThemeData theme = AppTheme.light();
-    expect(theme.colorScheme.primary, const Color(0xFF0F766E));
+    expect(theme.colorScheme.primary, Brand.themeColor);
+    expect(theme.colorScheme.secondary, Brand.splashBackground);
     expect(theme.scaffoldBackgroundColor, Colors.transparent);
     expect(AppTheme.pageBackgroundAsset, 'assets/images/app_bg.png');
     expect(AppTheme.appBarBackgroundAsset, 'assets/images/appbar.png');

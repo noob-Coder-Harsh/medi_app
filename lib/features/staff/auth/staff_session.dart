@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/routes.dart';
 import 'staff_auth_service.dart';
+import 'staff_session_cache.dart';
 import 'staff_user.dart';
 
 class StaffSessionState {
@@ -67,6 +68,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
 
   Future<void> _onAuthEvent(AuthState event) async {
     if (event.event == AuthChangeEvent.signedOut) {
+      await StaffSessionCache.clear();
       state = const StaffSessionState(ready: true);
       return;
     }
@@ -76,6 +78,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
   Future<void> _refreshFromAuth() async {
     final session = _auth.currentSession;
     if (session == null) {
+      await StaffSessionCache.clear();
       state = const StaffSessionState(ready: true);
       return;
     }
@@ -85,6 +88,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
     } catch (_) {
       storeUser = await _auth.loadStoreUser();
     }
+    await StaffSessionCache.persistUser(storeUser);
     state = StaffSessionState(
       ready: true,
       session: session,
@@ -103,6 +107,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
       throw StateError('Sign-in failed');
     }
     final storeUser = await _auth.ensureStoreUser();
+    await StaffSessionCache.persistUser(storeUser);
     state = StaffSessionState(
       ready: true,
       session: session,
@@ -127,6 +132,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
     );
     final session = result.session ?? _auth.currentSession;
     if (session == null) {
+      await StaffSessionCache.clear();
       state = const StaffSessionState(ready: true);
       return null;
     }
@@ -134,6 +140,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
       fullName: fullName,
       phone: phone,
     );
+    await StaffSessionCache.persistUser(storeUser);
     state = StaffSessionState(
       ready: true,
       session: session,
@@ -143,6 +150,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
   }
 
   Future<void> signOut() async {
+    await StaffSessionCache.clear();
     await _auth.signOut();
     state = const StaffSessionState(ready: true);
   }
@@ -152,6 +160,7 @@ class StaffSessionController extends Notifier<StaffSessionState> {
   }
 
   void setStoreUser(StaffUser storeUser) {
+    unawaited(StaffSessionCache.persistUser(storeUser));
     state = StaffSessionState(
       ready: true,
       session: state.session ?? _auth.currentSession,

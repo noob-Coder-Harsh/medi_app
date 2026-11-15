@@ -72,12 +72,18 @@ GoRouter createAppRouter({String initialLocation = Routes.staffLogin}) {
         return Routes.staffLogin;
       }
 
-      // Staff app routes need a Supabase session. Auth screens stay open.
-      if (_isStaffAppPath(path) && AppSupabase.isReady) {
-        final session = AppSupabase.client.auth.currentSession;
-        if (session == null) {
-          return Routes.staffLogin;
-        }
+      if (!AppSupabase.isReady) return null;
+      final session = AppSupabase.client.auth.currentSession;
+
+      // Already signed in — never flash login/signup.
+      if (session != null &&
+          (path == Routes.staffLogin || path == Routes.staffSignup)) {
+        return Routes.staffToday;
+      }
+
+      // Staff app routes need a Supabase session.
+      if (_isStaffAppPath(path) && session == null) {
+        return Routes.staffLogin;
       }
       return null;
     },

@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../../core/brand.dart';
 import '../../../core/i18n.dart';
 import '../../../core/packaging.dart';
 import '../../../core/packaging_constants.dart';
+import '../../../core/product_image_prepare.dart';
 import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/catalog_product.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/listing.dart';
 import '../../../data/rpc/listing_rpc.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../../../data/supabase_client.dart';
+import '../auth/staff_session.dart';
 import '../inventory/inventory_detail_controller.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
@@ -29,6 +34,7 @@ class CatalogProductEditPage extends ConsumerWidget {
     final product = state.product;
 
     return Scaffold(
+      backgroundColor: Brand.themeBackground,
       appBar: StaffAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -37,7 +43,7 @@ class CatalogProductEditPage extends ConsumerWidget {
             fallback: Routes.staffMedicinesProduct(storeProductId),
           ),
         ),
-        title: t('STORE_FORM.CATALOG_EDIT_META'),
+        title: t('STORE_FORM.EDIT_PRODUCT'),
       ),
       body: state.loading && product == null
           ? const Center(child: CircularProgressIndicator())
@@ -104,15 +110,29 @@ class _CatalogProductEditFormState
   late int _primaryPackQuantity;
   late bool _requiresRx;
   late bool _isActive;
+  late bool _isFeatured;
   late String _salePolicy;
   bool _loadingCategories = true;
+  bool _saving = false;
+  bool _preparingImage = false;
   String? _error;
+  Uint8List? _imageBytes;
+  String _imageFilename = 'product.webp';
+  String? _networkImageUrl;
+  bool _imageCleared = false;
+
+  static const double _fieldGap = 10;
+  static const EdgeInsets _densePad = EdgeInsets.symmetric(
+    horizontal: 12,
+    vertical: 12,
+  );
 
   bool get _isSystem => widget.product.isSystem;
 
   @override
   void initState() {
     super.initState();
+    _networkImageUrl = widget.product.imageUrl ?? widget.product.thumb;
     _categoryId = widget.product.categoryId;
     _dosageForm = (widget.product.dosageForm ?? 'tablet').toLowerCase();
     if (!kDosageFormValues.contains(_dosageForm)) {
@@ -129,6 +149,7 @@ class _CatalogProductEditFormState
         defaults.primaryPackQuantity;
     _requiresRx = widget.product.requiresPrescription;
     _isActive = widget.product.isActive;
+    _isFeatured = widget.product.isFeatured;
     _salePolicy = widget.product.salePolicy.isEmpty
         ? 'inherit'
         : widget.product.salePolicy;
@@ -149,6 +170,44 @@ class _CatalogProductEditFormState
     super.dispose();
   }
 
+  void _applyPackagingDefaults(String? dosageForm, {bool force = false}) {
+    final defaults = getPackagingDefaultsForDosageForm(dosageForm);
+    _baseUnit = defaults.baseUnit;
+    _primaryPackType = defaults.primaryPackType;
+    _primaryPackQuantity = defaults.packQuantityEditable
+        ? defaults.primaryPackQuantity
+        : 1;
+    if (force || _packQty.text != '$_primaryPackQuantity') {
+      _packQty.text = '$_primaryPackQuantity';
+    }
+  }
+
+  void _onDosageChanged(String? value) {
+    final next = value ?? 'tablet';
+    setState(() {
+      _dosageForm = next;
+      _applyPackagingDefaults(next, force: true);
+    });
+  }
+
+  void _onPackTypeChanged(String? value) {
+    if (value == null) return;
+    setState(() {
+      _primaryPackType = value;
+      if (!isPackQuantityEditable(_dosageForm, _baseUnit)) {
+        _primaryPackQuantity = 1;
+        _packQty.text = '1';
+      }
+    });
+  }
+
+  void _syncPackQtyFromField() {
+    final parsed = int.tryParse(_packQty.text.trim());
+    if (parsed != null && parsed >= 1) {
+      _primaryPackQuantity = parsed;
+    }
+  }
+
   Future<void> _loadCategories() async {
     if (!AppSupabase.isReady) {
       setState(() {
@@ -165,8 +224,7 @@ class _CatalogProductEditFormState
         _categories = categories.where((Category c) => c.isActive).toList();
         if (_categoryId == null ||
             !_categories.any((Category c) => c.id == _categoryId)) {
-          _categoryId =
-              _categories.isEmpty ? null : _categories.first.id;
+          _categoryId = _categories.isEmpty ? null : _categories.first.id;
         }
         _loadingCategories = false;
       });
@@ -179,415 +237,833 @@ class _CatalogProductEditFormState
     }
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    if (_preparingImage) return;
+    setState(() {
+      _preparingImage = true;
+      _error = null;
+    });
+    try {
+      final prepared = await ProductImagePrepare.pickCropAndCompress(
+        context: context,
+        source: source,
+      );
+      if (!mounted) return;
+      if (prepared == null) return;
+      setState(() {
+        _imageBytes = prepared.bytes;
+        _imageFilename = prepared.filename;
+        _imageCleared = false;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = t('STORE_FORM.PRODUCT_IMAGE_PREPARE_FAILED'));
+      debugPrint('Product image prepare failed: $error');
+    } finally {
+      if (mounted) setState(() => _preparingImage = false);
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: Text(t('STORE_FORM.PRODUCT_IMAGE_GALLERY')),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(t('STORE_FORM.PRODUCT_IMAGE_CAMERA')),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (source == null || !mounted) return;
+    await _pickImage(source);
+  }
+
+  double? _parseMoney(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text);
+  }
+
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _error = null);
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final mrp = double.tryParse(_mrp.text.trim());
-    final selling = double.tryParse(_selling.text.trim());
+    final mrp = _parseMoney(_mrp.text);
+    final selling = _parseMoney(_selling.text);
     final reorder = int.tryParse(_reorder.text.trim()) ?? 0;
-    final packQty = int.tryParse(_packQty.text.trim()) ?? 1;
+    final rack = _rack.text.trim().isEmpty ? null : _rack.text.trim();
 
-    final UpdateStoreProductInput input;
-    if (_isSystem) {
-      input = UpdateStoreProductInput(
-        isActive: _isActive,
-        salePolicy: _salePolicy,
-        rackLocation: _rack.text.trim().isEmpty ? null : _rack.text.trim(),
-        reorderLevel: reorder,
-        listingMrp: mrp,
-        listingSellingPrice: selling,
-      );
-    } else {
-      if (_categoryId == null || _categoryId!.isEmpty) {
-        setState(() => _error = t('STORE_FORM.CATEGORY_NAME'));
+    setState(() => _saving = true);
+    try {
+      String? imageUrlUpdate;
+      if (!_isSystem) {
+        if (_imageBytes != null && _imageBytes!.isNotEmpty) {
+          final writes = ref.read(staffWriteRpcProvider);
+          if (writes == null) {
+            setState(() {
+              _saving = false;
+              _error = t('AUTH_SUPABASE_MISSING');
+            });
+            return;
+          }
+          final storeId = ref.read(staffSessionProvider).storeUser?.storeId;
+          if (storeId == null || storeId.isEmpty) {
+            setState(() {
+              _saving = false;
+              _error = 'STORE_REQUIRED';
+            });
+            return;
+          }
+          imageUrlUpdate = await writes.uploadProductImage(
+            storeId: storeId,
+            bytes: _imageBytes!,
+            filename: _imageFilename,
+          );
+        } else if (_imageCleared) {
+          imageUrlUpdate = '';
+        }
+      }
+
+      final UpdateStoreProductInput input;
+      if (_isSystem) {
+        input = UpdateStoreProductInput(
+          isActive: _isActive,
+          isFeatured: _isFeatured,
+          salePolicy: _salePolicy,
+          rackLocation: rack,
+          reorderLevel: reorder,
+          listingMrp: mrp,
+          listingSellingPrice: selling,
+        );
+      } else {
+        if (_categoryId == null || _categoryId!.isEmpty) {
+          setState(() {
+            _saving = false;
+            _error = t('STORE_FORM.CATEGORY_NAME');
+          });
+          return;
+        }
+        _syncPackQtyFromField();
+        final qtyEditable = isPackQuantityEditable(_dosageForm, _baseUnit);
+        final packQty =
+            qtyEditable ? _primaryPackQuantity.clamp(1, 1 << 30) : 1;
+        input = UpdateStoreProductInput(
+          isActive: _isActive,
+          isFeatured: _isFeatured,
+          salePolicy: _salePolicy,
+          rackLocation: rack,
+          reorderLevel: reorder,
+          categoryId: _categoryId,
+          name: _name.text,
+          genericName: _generic.text.trim().isEmpty ? '' : _generic.text.trim(),
+          manufacturer:
+              _manufacturer.text.trim().isEmpty ? '' : _manufacturer.text.trim(),
+          strength: _strength.text.trim().isEmpty ? '' : _strength.text.trim(),
+          dosageForm: _dosageForm,
+          baseUnit: _baseUnit,
+          primaryPackType: _primaryPackType,
+          primaryPackQuantity: packQty,
+          requiresPrescription: _requiresRx,
+          listingMrp: mrp,
+          listingSellingPrice: selling,
+          imageUrl: imageUrlUpdate,
+        );
+      }
+
+      final error = await ref
+          .read(inventoryDetailProvider(widget.storeProductId).notifier)
+          .saveListing(input);
+      if (!mounted) return;
+      if (error != null) {
+        setState(() {
+          _saving = false;
+          _error = error == 'AUTH_SUPABASE_MISSING'
+              ? t('AUTH_SUPABASE_MISSING')
+              : error;
+        });
         return;
       }
-      input = UpdateStoreProductInput(
-        isActive: _isActive,
-        salePolicy: _salePolicy,
-        rackLocation: _rack.text.trim().isEmpty ? null : _rack.text.trim(),
-        reorderLevel: reorder,
-        categoryId: _categoryId,
-        name: _name.text,
-        genericName: _generic.text.trim().isEmpty ? '' : _generic.text.trim(),
-        manufacturer:
-            _manufacturer.text.trim().isEmpty ? '' : _manufacturer.text.trim(),
-        strength: _strength.text.trim().isEmpty ? '' : _strength.text.trim(),
-        dosageForm: _dosageForm,
-        baseUnit: _baseUnit,
-        primaryPackType: _primaryPackType,
-        primaryPackQuantity: packQty.clamp(1, 1 << 30),
-        requiresPrescription: _requiresRx,
-        listingMrp: mrp,
-        listingSellingPrice: selling,
+      staffBack(
+        context,
+        fallback: Routes.staffMedicinesProduct(widget.storeProductId),
       );
-    }
-
-    final error = await ref
-        .read(inventoryDetailProvider(widget.storeProductId).notifier)
-        .saveListing(input);
-    if (!mounted) return;
-    if (error != null) {
+    } catch (error) {
+      if (!mounted) return;
       setState(() {
-        _error = error == 'AUTH_SUPABASE_MISSING'
-            ? t('AUTH_SUPABASE_MISSING')
-            : error;
+        _saving = false;
+        _error = '$error';
       });
-      return;
     }
-    staffBack(
-      context,
-      fallback: Routes.staffMedicinesProduct(widget.storeProductId),
+  }
+
+  InputDecoration _deco({
+    String? hint,
+    Widget? prefixIcon,
+    Widget? suffixIcon,
+    bool dense = true,
+    Color? fillColor,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
+      isDense: dense,
+      filled: fillColor != null,
+      fillColor: fillColor,
+      contentPadding: dense ? _densePad : null,
+      hintStyle: TextStyle(
+        fontSize: 13,
+        color: AppTheme.ink.withValues(alpha: 0.38),
+      ),
     );
   }
+
+  Future<String?> _pickOption({
+    required String title,
+    required List<_SelectOption> options,
+    String? selected,
+    String? subtitle,
+    String? searchHint,
+    IconData? headerIcon,
+  }) {
+    return _showOptionBottomSheet(
+      context: context,
+      title: title,
+      subtitle: subtitle,
+      searchHint: searchHint,
+      headerIcon: headerIcon,
+      options: options,
+      selected: selected,
+    );
+  }
+
+  String _salePolicyLabel(String value) {
+    switch (value) {
+      case 'inherit':
+        return t('STORE_FORM.SALE_POLICY_INHERIT');
+      case 'loose_allowed':
+        return t('STORE_FORM.SALE_POLICY_LOOSE');
+      case 'pack_only':
+        return t('STORE_FORM.SALE_POLICY_PACK');
+      case 'whole_only':
+        return t('STORE_FORM.SALE_POLICY_WHOLE');
+      default:
+        return value;
+    }
+  }
+
+  static const List<String> _salePolicyValues = <String>[
+    'inherit',
+    'loose_allowed',
+    'pack_only',
+    'whole_only',
+  ];
 
   @override
   Widget build(BuildContext context) {
     ref.watch(localeProvider);
-    final busy = ref.watch(inventoryDetailProvider(widget.storeProductId)).busy;
+    final providerBusy =
+        ref.watch(inventoryDetailProvider(widget.storeProductId)).busy;
+    final busy = providerBusy || _saving;
     final theme = Theme.of(context);
-    final wide = MediaQuery.sizeOf(context).width >= 420;
+    final compact = MediaQuery.sizeOf(context).width < 390;
     final qtyEditable = isPackQuantityEditable(_dosageForm, _baseUnit);
     final allowedPackTypes = getAllowedPackTypesForDosageForm(_dosageForm);
+    final preview = formatPackLabel(
+      PackagingInfo(
+        baseUnit: _baseUnit,
+        primaryPackType: _primaryPackType,
+        primaryPackQuantity: qtyEditable
+            ? (int.tryParse(_packQty.text.trim()) ?? _primaryPackQuantity)
+                .toDouble()
+            : 1,
+      ),
+    );
+    final displayNetworkUrl =
+        !_imageCleared && (_imageBytes == null || _imageBytes!.isEmpty)
+            ? _networkImageUrl
+            : null;
 
     return Form(
       key: _formKey,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      child: Column(
         children: <Widget>[
-          if (_isSystem) ...<Widget>[
-            Text(
-              t('STORE_FORM.CATALOG_PRODUCT_READ_ONLY'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (_loadingCategories)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else ...<Widget>[
-            if (!_isSystem) ...<Widget>[
-              _SectionHeader(
-                title: t('STORE_FORM.PRODUCT_INFO_SECTION'),
-                description: t('STORE_FORM.PRODUCT_INFO_SECTION_DESC'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                        // ignore: deprecated_member_use
-                        value: _categoryId,
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.CATEGORIES_TITLE'),
-                          prefixIcon: const Icon(Icons.sell_outlined),
+          Expanded(
+            child: _loadingCategories
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 12 : 16,
+                      10,
+                      compact ? 12 : 16,
+                      24,
+                    ),
+                    children: <Widget>[
+                      if (_isSystem)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: BrandTeal.soft,
+                            borderRadius: AppTheme.borderRadius,
+                            border: Border.all(
+                              color: BrandTeal.border,
+                              width: AppTheme.hairline,
+                            ),
+                          ),
+                          child: Text(
+                            t('STORE_FORM.CATALOG_PRODUCT_READ_ONLY'),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF065F46),
+                              fontSize: 12.5,
+                              height: 1.35,
+                            ),
+                          ),
                         ),
-                        items: _categories
-                            .map(
-                              (Category c) => DropdownMenuItem<String>(
-                                value: c.id,
-                                child: Text(c.name),
+                      if (!_isSystem) ...<Widget>[
+                        _FormSection(
+                          title: t('STORE_FORM.PRODUCT_INFO_SECTION'),
+                          icon: Icons.medication_outlined,
+                          initiallyExpanded: true,
+                          compact: compact,
+                          child: Column(
+                            children: <Widget>[
+                              _ProductImagePicker(
+                                bytes: _imageBytes,
+                                networkUrl: displayNetworkUrl,
+                                enabled: !busy && !_preparingImage,
+                                preparing: _preparingImage,
+                                onPick: _showImageSourceSheet,
+                                onRemove: () => setState(() {
+                                  _imageBytes = null;
+                                  _imageFilename = 'product.webp';
+                                  _imageCleared = true;
+                                }),
                               ),
-                            )
-                            .toList(growable: false),
-                        onChanged: busy
-                            ? null
-                            : (String? value) =>
-                                setState(() => _categoryId = value),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _name,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.PRODUCT_NAME'),
-                          prefixIcon: const Icon(Icons.medication_outlined),
-                        ),
-                        validator: (String? value) {
-                          final text = value?.trim() ?? '';
-                          if (text.length < 2) {
-                            return t('STORE_FORM.PRODUCT_NAME');
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _PairRow(
-                        wide: wide,
-                        left: TextFormField(
-                          controller: _generic,
-                          decoration: InputDecoration(
-                            labelText: t('STORE_FORM.GENERIC_NAME'),
-                            prefixIcon: const Icon(Icons.inventory_2_outlined),
-                          ),
-                        ),
-                        right: TextFormField(
-                          controller: _manufacturer,
-                          decoration: InputDecoration(
-                            labelText: t('STOREFRONT.PRODUCT_MANUFACTURER'),
-                            prefixIcon: const Icon(Icons.apartment_outlined),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _PairRow(
-                        wide: wide,
-                        left: TextFormField(
-                          controller: _strength,
-                          decoration: InputDecoration(
-                            labelText: t('STORE_FORM.STRENGTH'),
-                            prefixIcon: const Icon(Icons.info_outline),
-                          ),
-                        ),
-                        right: DropdownButtonFormField<String>(
-                          // ignore: deprecated_member_use
-                          value: _dosageForm,
-                          decoration: InputDecoration(
-                            labelText: t('STORE_FORM.DOSAGE_FORM'),
-                            prefixIcon:
-                                const Icon(Icons.water_drop_outlined),
-                          ),
-                          items: kDosageFormValues
-                              .map(
-                                (String value) => DropdownMenuItem<String>(
-                                  value: value,
-                                  child: Text(_title(value)),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STORE_FORM.PRODUCT_NAME'),
+                                required: true,
+                                child: TextFormField(
+                                  controller: _name,
+                                  enabled: !busy,
+                                  textCapitalization: TextCapitalization.words,
+                                  decoration: _deco(
+                                    hint: t(
+                                      'STORE_FORM.PRODUCT_NAME_PLACEHOLDER',
+                                    ),
+                                    prefixIcon:
+                                        const Icon(Icons.inventory_2_outlined),
+                                  ),
+                                  validator: (String? value) {
+                                    final text = value?.trim() ?? '';
+                                    if (text.length < 2) {
+                                      return t('STORE_FORM.PRODUCT_NAME');
+                                    }
+                                    return null;
+                                  },
                                 ),
-                              )
-                              .toList(growable: false),
-                          onChanged: busy
-                              ? null
-                              : (String? value) {
-                                  if (value == null) return;
-                                  final defaults =
-                                      getPackagingDefaultsForDosageForm(value);
-                                  setState(() {
-                                    _dosageForm = value;
-                                    _baseUnit = defaults.baseUnit;
-                                    _primaryPackType = defaults.primaryPackType;
-                                    _primaryPackQuantity =
-                                        defaults.primaryPackQuantity;
-                                    _packQty.text =
-                                        '$_primaryPackQuantity';
-                                  });
-                                },
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: Text(t('STORE_FORM.REQUIRES_PRESCRIPTION')),
-                        value: _requiresRx,
-                        onChanged: busy
-                            ? null
-                            : (bool? value) => setState(
-                                  () => _requiresRx = value ?? false,
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STORE_FORM.GENERIC_NAME'),
+                                child: TextFormField(
+                                  controller: _generic,
+                                  enabled: !busy,
+                                  textCapitalization: TextCapitalization.words,
+                                  decoration: _deco(
+                                    hint: t(
+                                      'STORE_FORM.GENERIC_NAME_PLACEHOLDER',
+                                    ),
+                                    prefixIcon: const Icon(
+                                      Icons.medication_outlined,
+                                    ),
+                                  ),
                                 ),
-                      ),
-                      const SizedBox(height: 16),
-                      _SectionHeader(
-                        title: t('STORE_FORM.PACKAGING_SECTION'),
-                        description:
-                            t('STORE_FORM.PACKAGING_SECTION_SHORT_DESC'),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDFA),
-                          borderRadius: AppTheme.borderRadius,
-                          border: Border.all(
-                            color: const Color(0xFFCCFBF1),
-                            width: AppTheme.hairline,
-                          ),
-                        ),
-                        child: Text(
-                          t('STORE_FORM.PACKAGING_SECTION_DESC'),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF065F46),
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.BASE_UNIT'),
-                          filled: true,
-                          prefixIcon: const Icon(Icons.inventory_2_outlined),
-                        ),
-                        child: Text(
-                          getBaseUnitLabel(_baseUnit),
-                          style: theme.textTheme.bodyLarge,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _PairRow(
-                        wide: wide,
-                        left: DropdownButtonFormField<String>(
-                          // ignore: deprecated_member_use
-                          value: allowedPackTypes.contains(_primaryPackType)
-                              ? _primaryPackType
-                              : allowedPackTypes.first,
-                          decoration: InputDecoration(
-                            labelText: t('STORE_FORM.PRIMARY_PACK_TYPE'),
-                            prefixIcon: const Icon(Icons.layers_outlined),
-                          ),
-                          items: allowedPackTypes
-                              .map(
-                                (String value) => DropdownMenuItem<String>(
-                                  value: value,
-                                  child: Text(getPrimaryPackTypeLabel(value)),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STOREFRONT.PRODUCT_MANUFACTURER'),
+                                child: TextFormField(
+                                  controller: _manufacturer,
+                                  enabled: !busy,
+                                  decoration: _deco(
+                                    hint: t(
+                                      'STORE_FORM.MANUFACTURER_PLACEHOLDER',
+                                    ),
+                                    prefixIcon:
+                                        const Icon(Icons.apartment_outlined),
+                                  ),
                                 ),
-                              )
-                              .toList(growable: false),
-                          onChanged: busy
-                              ? null
-                              : (String? value) {
-                                  if (value == null) return;
-                                  setState(() => _primaryPackType = value);
-                                },
-                        ),
-                        right: TextFormField(
-                          controller: _packQty,
-                          enabled: !busy && qtyEditable,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: InputDecoration(
-                            labelText: t('STORE_FORM.PRIMARY_PACK_QUANTITY'),
-                            prefixIcon: const Icon(Icons.tag),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STORE_FORM.CATEGORIES_TITLE'),
+                                required: true,
+                                child: _SheetSelectField(
+                                  value: _categoryId,
+                                  enabled: !busy,
+                                  options: _categories
+                                      .map(
+                                        (Category c) => _SelectOption(
+                                          value: c.id,
+                                          label: c.name,
+                                        ),
+                                      )
+                                      .toList(growable: false),
+                                  decoration: _deco(
+                                    hint: t('STORE_FORM.CATEGORIES_TITLE'),
+                                    prefixIcon:
+                                        const Icon(Icons.sell_outlined),
+                                  ),
+                                  title: t('STORE_FORM.CATEGORY_PICK_TITLE'),
+                                  subtitle: t(
+                                    'STORE_FORM.CATEGORY_PICK_SUBTITLE',
+                                  ),
+                                  searchHint: t('STORE_FORM.SEARCH_CATEGORIES'),
+                                  headerIcon: Icons.grid_view_rounded,
+                                  onPick: _pickOption,
+                                  onChanged: (String value) =>
+                                      setState(() => _categoryId = value),
+                                  validator: (String? value) {
+                                    if (value == null || value.isEmpty) {
+                                      return t('STORE_FORM.CATEGORIES_TITLE');
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _TwoCol(
+                                left: _LabeledField(
+                                  label: t('STORE_FORM.STRENGTH'),
+                                  child: TextFormField(
+                                    controller: _strength,
+                                    enabled: !busy,
+                                    decoration: _deco(
+                                      hint: t('STORE_FORM.STRENGTH_PLACEHOLDER'),
+                                      prefixIcon: const Icon(
+                                        Icons.speed_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                right: _LabeledField(
+                                  label: t('STORE_FORM.DOSAGE_FORM'),
+                                  child: _SheetSelectField(
+                                    value: _dosageForm,
+                                    enabled: !busy,
+                                    options: kDosageFormValues
+                                        .map(
+                                          (String value) => _SelectOption(
+                                            value: value,
+                                            label: _title(value),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                    decoration: _deco(
+                                      prefixIcon: const Icon(
+                                        Icons.medication_liquid_outlined,
+                                      ),
+                                    ),
+                                    title: t('STORE_FORM.DOSAGE_FORM'),
+                                    subtitle: t(
+                                      'STORE_FORM.DOSAGE_FORM_PICK_SUBTITLE',
+                                    ),
+                                    searchHint: t('STORE_FORM.SEARCH_DOSAGE_FORM'),
+                                    headerIcon: Icons.medication_liquid_outlined,
+                                    onPick: _pickOption,
+                                    onChanged: (String value) =>
+                                        _onDosageChanged(value),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                title: Text(
+                                  t('STORE_FORM.REQUIRES_PRESCRIPTION'),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                value: _requiresRx,
+                                onChanged: busy
+                                    ? null
+                                    : (bool? value) => setState(
+                                          () => _requiresRx = value ?? false,
+                                        ),
+                              ),
+                              const SizedBox(height: 4),
+                              Material(
+                                color: BrandTeal.soft,
+                                borderRadius: AppTheme.borderRadius,
+                                child: SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  dense: true,
+                                  secondary: Icon(
+                                    Icons.star_outline_rounded,
+                                    color: Brand.themeColor,
+                                  ),
+                                  value: _isFeatured,
+                                  onChanged: busy
+                                      ? null
+                                      : (bool value) => setState(
+                                            () => _isFeatured = value,
+                                          ),
+                                  title: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED'),
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED_HINT'),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 11.5,
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                  activeThumbColor: Brand.themeColor,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    _SectionHeader(
-                      title: t('STORE_FORM.PRICING_SECTION'),
-                      description: t('STORE_FORM.PRICING_SECTION_DESC'),
-                    ),
-                    const SizedBox(height: 12),
-                    _PairRow(
-                      wide: wide,
-                      left: TextFormField(
-                        controller: _mrp,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                        const SizedBox(height: 10),
+                        _FormSection(
+                          title: t('STORE_FORM.PACKAGING_SECTION'),
+                          icon: Icons.layers_outlined,
+                          initiallyExpanded: true,
+                          compact: compact,
+                          child: Column(
+                            children: <Widget>[
+                              _TwoCol(
+                                left: _LabeledField(
+                                  label: t('STORE_FORM.PRIMARY_PACK_TYPE'),
+                                  child: _SheetSelectField(
+                                    value: allowedPackTypes
+                                            .contains(_primaryPackType)
+                                        ? _primaryPackType
+                                        : allowedPackTypes.first,
+                                    enabled: !busy,
+                                    options: allowedPackTypes
+                                        .map(
+                                          (String value) => _SelectOption(
+                                            value: value,
+                                            label: getPrimaryPackTypeLabel(
+                                              value,
+                                            ),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                    decoration: _deco(
+                                      prefixIcon:
+                                          const Icon(Icons.layers_outlined),
+                                    ),
+                                    title: t('STORE_FORM.PRIMARY_PACK_TYPE'),
+                                    subtitle: t(
+                                      'STORE_FORM.PACK_TYPE_PICK_SUBTITLE',
+                                    ),
+                                    searchHint: t('STORE_FORM.SEARCH_PACK_TYPE'),
+                                    headerIcon: Icons.layers_outlined,
+                                    onPick: _pickOption,
+                                    onChanged: (String value) =>
+                                        _onPackTypeChanged(value),
+                                  ),
+                                ),
+                                right: _LabeledField(
+                                  label: t('STORE_FORM.PRIMARY_PACK_QUANTITY'),
+                                  child: TextFormField(
+                                    controller: _packQty,
+                                    enabled: !busy && qtyEditable,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: <TextInputFormatter>[
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: _deco(
+                                      prefixIcon: const Icon(Icons.tag),
+                                    ),
+                                    onChanged: (_) {
+                                      _syncPackQtyFromField();
+                                      setState(() {});
+                                    },
+                                    validator: (String? value) {
+                                      if (!qtyEditable) return null;
+                                      final parsed =
+                                          int.tryParse(value?.trim() ?? '');
+                                      if (parsed == null || parsed < 1) {
+                                        return t(
+                                          'STORE_FORM.PRIMARY_PACK_QUANTITY',
+                                        );
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _PackPreviewCard(preview: preview),
+                            ],
+                          ),
                         ),
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.MRP'),
-                          prefixIcon: const Icon(Icons.currency_rupee),
-                        ),
-                      ),
-                      right: TextFormField(
-                        controller: _selling,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.SELLING_PRICE'),
-                          prefixIcon: const Icon(Icons.currency_rupee),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _PairRow(
-                      wide: wide,
-                      left: TextFormField(
-                        controller: _rack,
-                        decoration: const InputDecoration(labelText: 'Rack'),
-                      ),
-                      right: TextFormField(
-                        controller: _reorder,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Reorder level',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      // ignore: deprecated_member_use
-                      value: _salePolicy,
-                      decoration: const InputDecoration(
-                        labelText: 'Sale policy',
-                      ),
-                      items: const <DropdownMenuItem<String>>[
-                        DropdownMenuItem(
-                          value: 'inherit',
-                          child: Text('Inherit'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'loose_allowed',
-                          child: Text('Loose allowed'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'pack_only',
-                          child: Text('Pack only'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'whole_only',
-                          child: Text('Whole only'),
-                        ),
+                        const SizedBox(height: 10),
                       ],
-                      onChanged: busy
-                          ? null
-                          : (String? value) {
-                              if (value == null) return;
-                              setState(() => _salePolicy = value);
-                            },
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(t('STORE_FORM.CATALOG_SET_ACTIVE')),
-                      value: _isActive,
-                      onChanged: busy
-                          ? null
-                          : (bool value) => setState(() => _isActive = value),
-                    ),
-                    if (_error != null) ...<Widget>[
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppTheme.error,
-                        ),
-                      ),
-                    ],
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: busy
-                        ? null
-                        : () => staffBack(
-                              context,
-                              fallback: Routes.staffMedicinesProduct(
-                                widget.storeProductId,
+                      _FormSection(
+                        title: t('STORE_FORM.PRICING_SECTION'),
+                        icon: Icons.currency_rupee,
+                        initiallyExpanded: true,
+                        compact: compact,
+                        child: Column(
+                          children: <Widget>[
+                            _TwoCol(
+                              left: _LabeledField(
+                                label: t('STORE_FORM.MRP'),
+                                child: TextFormField(
+                                  controller: _mrp,
+                                  enabled: !busy,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: _deco(
+                                    prefixIcon:
+                                        const Icon(Icons.currency_rupee),
+                                  ),
+                                ),
+                              ),
+                              right: _LabeledField(
+                                label: t('STORE_FORM.SELLING_PRICE'),
+                                child: TextFormField(
+                                  controller: _selling,
+                                  enabled: !busy,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: _deco(
+                                    prefixIcon:
+                                        const Icon(Icons.currency_rupee),
+                                    fillColor: BrandTeal.soft,
+                                  ),
+                                ),
                               ),
                             ),
-                    child: Text(t('CANCEL')),
+                            const SizedBox(height: _fieldGap),
+                            _TwoCol(
+                              left: _LabeledField(
+                                label: t('STORE_FORM.RACK_LOCATION'),
+                                child: TextFormField(
+                                  controller: _rack,
+                                  enabled: !busy,
+                                  decoration: _deco(
+                                    prefixIcon: const Icon(
+                                      Icons.place_outlined,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              right: _LabeledField(
+                                label: t('STORE_FORM.REORDER_LEVEL'),
+                                child: TextFormField(
+                                  controller: _reorder,
+                                  enabled: !busy,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: <TextInputFormatter>[
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: _deco(
+                                    prefixIcon: const Icon(
+                                      Icons.notifications_active_outlined,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: _fieldGap),
+                            _LabeledField(
+                              label: t('STORE_FORM.SALE_POLICY'),
+                              child: DropdownButtonFormField<String>(
+                                // ignore: deprecated_member_use
+                                value: _salePolicy,
+                                isDense: true,
+                                decoration: _deco(
+                                  prefixIcon: const Icon(
+                                    Icons.shopping_bag_outlined,
+                                  ),
+                                ),
+                                items: _salePolicyValues
+                                    .map(
+                                      (String value) => DropdownMenuItem<String>(
+                                        value: value,
+                                        child: Text(_salePolicyLabel(value)),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                                onChanged: busy
+                                    ? null
+                                    : (String? value) {
+                                        if (value == null) return;
+                                        setState(() => _salePolicy = value);
+                                      },
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              t('STORE_FORM.SALE_POLICY_DESC'),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 11.5,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.55),
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(height: _fieldGap),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              title: Text(
+                                t('STORE_FORM.CATALOG_SET_ACTIVE'),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              value: _isActive,
+                              onChanged: busy
+                                  ? null
+                                  : (bool value) =>
+                                      setState(() => _isActive = value),
+                              activeThumbColor: Brand.themeColor,
+                            ),
+                            if (_isSystem) ...<Widget>[
+                              const SizedBox(height: 4),
+                              Material(
+                                color: BrandTeal.soft,
+                                borderRadius: AppTheme.borderRadius,
+                                child: SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  dense: true,
+                                  secondary: Icon(
+                                    Icons.star_outline_rounded,
+                                    color: Brand.themeColor,
+                                  ),
+                                  value: _isFeatured,
+                                  onChanged: busy
+                                      ? null
+                                      : (bool value) => setState(
+                                            () => _isFeatured = value,
+                                          ),
+                                  title: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED'),
+                                    style:
+                                        theme.textTheme.bodyMedium?.copyWith(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED_HINT'),
+                                    style:
+                                        theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 11.5,
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                  activeThumbColor: Brand.themeColor,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (_error != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        Text(
+                          _error!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppTheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
+          ),
+          ColoredBox(
+            color: Brand.themeBackground,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: busy
+                            ? null
+                            : () => staffBack(
+                                  context,
+                                  fallback: Routes.staffMedicinesProduct(
+                                    widget.storeProductId,
+                                  ),
+                                ),
+                        child: Text(t('CANCEL')),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton.icon(
+                        onPressed:
+                            busy || _loadingCategories ? null : _save,
+                        icon: busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(t('STORE_FORM.SAVE_PRODUCT')),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: busy ? null : _save,
-                    child: Text(t('CONFIRM')),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -604,63 +1080,864 @@ class _CatalogProductEditFormState
   }
 }
 
-class _PairRow extends StatelessWidget {
-  const _PairRow({
-    required this.wide,
-    required this.left,
-    required this.right,
+class _FormSection extends StatefulWidget {
+  const _FormSection({
+    required this.title,
+    required this.child,
+    this.icon,
+    this.initiallyExpanded = true,
+    this.compact = false,
   });
 
-  final bool wide;
+  final String title;
+  final Widget child;
+  final IconData? icon;
+  final bool initiallyExpanded;
+  final bool compact;
+
+  @override
+  State<_FormSection> createState() => _FormSectionState();
+}
+
+class _FormSectionState extends State<_FormSection> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final titleSize = widget.compact ? 14.0 : 15.0;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: AppTheme.borderRadius,
+        border: Border.all(
+          color: AppTheme.hairlineColor,
+          width: AppTheme.hairline,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          InkWell(
+            borderRadius: AppTheme.borderRadius,
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                widget.compact ? 12 : 14,
+                12,
+                widget.compact ? 8 : 10,
+                12,
+              ),
+              child: Row(
+                children: <Widget>[
+                  if (widget.icon != null) ...<Widget>[
+                    Icon(
+                      widget.icon,
+                      size: 18,
+                      color: Brand.themeColor,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: titleSize,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                widget.compact ? 12 : 14,
+                0,
+                widget.compact ? 12 : 14,
+                widget.compact ? 12 : 14,
+              ),
+              child: widget.child,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectOption {
+  const _SelectOption({required this.value, required this.label});
+
+  final String value;
+  final String label;
+}
+
+class _OptionVisual {
+  const _OptionVisual({
+    required this.icon,
+    required this.fg,
+    required this.bg,
+  });
+
+  final IconData icon;
+  final Color fg;
+  final Color bg;
+}
+
+_OptionVisual _visualForOption(String label, int index) {
+  final key = label.toLowerCase();
+  if (key.contains('tablet') || key.contains('capsule')) {
+    return const _OptionVisual(
+      icon: Icons.medication_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  if (key.contains('syrup') || key.contains('liquid') || key.contains('bottle')) {
+    return const _OptionVisual(
+      icon: Icons.science_outlined,
+      fg: Color(0xFF2563EB),
+      bg: Color(0xFFDBEAFE),
+    );
+  }
+  if (key.contains('drop')) {
+    return const _OptionVisual(
+      icon: Icons.water_drop_outlined,
+      fg: Color(0xFFB45309),
+      bg: Color(0xFFFFEDD5),
+    );
+  }
+  if (key.contains('inject') || key.contains('vial') || key.contains('ampoule')) {
+    return const _OptionVisual(
+      icon: Icons.vaccines_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  if (key.contains('cream') || key.contains('ointment') || key.contains('gel')) {
+    return const _OptionVisual(
+      icon: Icons.spa_outlined,
+      fg: Color(0xFF7C3AED),
+      bg: Color(0xFFEDE9FE),
+    );
+  }
+  if (key.contains('inhal') || key.contains('device')) {
+    return const _OptionVisual(
+      icon: Icons.air,
+      fg: Color(0xFF059669),
+      bg: Color(0xFFD1FAE5),
+    );
+  }
+  if (key.contains('surg') || key.contains('dress') || key.contains('bandage')) {
+    return const _OptionVisual(
+      icon: Icons.medical_services_outlined,
+      fg: Color(0xFFEA580C),
+      bg: Color(0xFFFFEDD5),
+    );
+  }
+  if (key.contains('baby') || key.contains('infant') || key.contains('paed')) {
+    return const _OptionVisual(
+      icon: Icons.child_care_outlined,
+      fg: Color(0xFFBE123C),
+      bg: Color(0xFFFFE4E6),
+    );
+  }
+  if (key.contains('strip') || key.contains('pack') || key.contains('box')) {
+    return const _OptionVisual(
+      icon: Icons.layers_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  const palette = <_OptionVisual>[
+    _OptionVisual(
+      icon: Icons.category_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    ),
+    _OptionVisual(
+      icon: Icons.inventory_2_outlined,
+      fg: Color(0xFF2563EB),
+      bg: Color(0xFFDBEAFE),
+    ),
+    _OptionVisual(
+      icon: Icons.local_pharmacy_outlined,
+      fg: Color(0xFF7C3AED),
+      bg: Color(0xFFEDE9FE),
+    ),
+    _OptionVisual(
+      icon: Icons.healing_outlined,
+      fg: Color(0xFFEA580C),
+      bg: Color(0xFFFFEDD5),
+    ),
+  ];
+  return palette[index % palette.length];
+}
+
+Future<String?> _showOptionBottomSheet({
+  required BuildContext context,
+  required String title,
+  required List<_SelectOption> options,
+  String? selected,
+  String? subtitle,
+  String? searchHint,
+  IconData? headerIcon,
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (BuildContext context) {
+      return _OptionPickerSheet(
+        title: title,
+        subtitle: subtitle,
+        searchHint: searchHint,
+        headerIcon: headerIcon ?? Icons.grid_view_rounded,
+        options: options,
+        selected: selected,
+      );
+    },
+  );
+}
+
+class _OptionPickerSheet extends StatefulWidget {
+  const _OptionPickerSheet({
+    required this.title,
+    required this.options,
+    required this.headerIcon,
+    this.subtitle,
+    this.searchHint,
+    this.selected,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? searchHint;
+  final IconData headerIcon;
+  final List<_SelectOption> options;
+  final String? selected;
+
+  @override
+  State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
+}
+
+class _OptionPickerSheetState extends State<_OptionPickerSheet> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<_SelectOption> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return widget.options;
+    return widget.options
+        .where((o) => o.label.toLowerCase().contains(q))
+        .toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.78;
+    final filtered = _filtered;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Color(0xFFF0FDFA),
+                Colors.white,
+                Colors.white,
+              ],
+              stops: <double>[0, 0.18, 1],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Brand.themeColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        widget.headerIcon,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            widget.title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                          if (widget.subtitle != null &&
+                              widget.subtitle!.trim().isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.subtitle!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppTheme.ink.withValues(alpha: 0.55),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        foregroundColor: AppTheme.ink.withValues(alpha: 0.65),
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: TextField(
+                  controller: _search,
+                  onChanged: (String value) => setState(() => _query = value),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: widget.searchHint ?? t('STORE_FORM.SEARCH'),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: AppTheme.ink.withValues(alpha: 0.4),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: BorderSide(
+                        color: Brand.themeColor,
+                        width: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Flexible(
+                child: filtered.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          t('STORE_FORM.OPTION_PICK_EMPTY'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.ink.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (BuildContext context, int index) {
+                          final option = filtered[index];
+                          final originalIndex = widget.options.indexWhere(
+                            (o) => o.value == option.value,
+                          );
+                          final visual = _visualForOption(
+                            option.label,
+                            originalIndex < 0 ? index : originalIndex,
+                          );
+                          final isSelected = option.value == widget.selected;
+                          return Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: () =>
+                                  Navigator.pop(context, option.value),
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Brand.themeColor
+                                        : const Color(0xFFE2E8F0),
+                                    width: isSelected ? 1.6 : 1,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: <Widget>[
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: visual.bg,
+                                          borderRadius:
+                                              BorderRadius.circular(11),
+                                        ),
+                                        child: Icon(
+                                          visual.icon,
+                                          color: visual.fg,
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          option.label,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        Container(
+                                          width: 26,
+                                          height: 26,
+                                          decoration: BoxDecoration(
+                                            color: Brand.themeColor,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.check_rounded,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetSelectField extends FormField<String> {
+  _SheetSelectField({
+    required String? value,
+    required List<_SelectOption> options,
+    required String title,
+    required Future<String?> Function({
+      required String title,
+      required List<_SelectOption> options,
+      String? selected,
+      String? subtitle,
+      String? searchHint,
+      IconData? headerIcon,
+    }) onPick,
+    required ValueChanged<String> onChanged,
+    required InputDecoration decoration,
+    String? subtitle,
+    String? searchHint,
+    IconData? headerIcon,
+    super.validator,
+    bool enabled = true,
+  }) : super(
+          initialValue: value,
+          builder: (FormFieldState<String> field) {
+            final current = value ?? field.value;
+            String? label;
+            for (final option in options) {
+              if (option.value == current) {
+                label = option.label;
+                break;
+              }
+            }
+            final hintColor = AppTheme.ink.withValues(alpha: 0.38);
+            return InkWell(
+              borderRadius: AppTheme.borderRadius,
+              onTap: !enabled || options.isEmpty
+                  ? null
+                  : () async {
+                      final picked = await onPick(
+                        title: title,
+                        options: options,
+                        selected: current,
+                        subtitle: subtitle,
+                        searchHint: searchHint,
+                        headerIcon: headerIcon,
+                      );
+                      if (picked == null) return;
+                      field.didChange(picked);
+                      onChanged(picked);
+                    },
+              child: InputDecorator(
+                isEmpty: label == null || label.isEmpty,
+                decoration: decoration.copyWith(
+                  errorText: field.errorText,
+                  suffixIcon: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: enabled
+                        ? AppTheme.ink.withValues(alpha: 0.45)
+                        : AppTheme.ink.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Text(
+                  label ?? decoration.hintText ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(field.context).textTheme.bodyLarge?.copyWith(
+                        fontSize: 14,
+                        color: label == null ? hintColor : null,
+                      ),
+                ),
+              ),
+            );
+          },
+        );
+}
+
+class _LabeledField extends StatelessWidget {
+  const _LabeledField({
+    required this.label,
+    required this.child,
+    this.required = false,
+  });
+
+  final String label;
+  final Widget child;
+  final bool required;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text.rich(
+          TextSpan(
+            text: label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: AppTheme.ink.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w600,
+              fontSize: 12.5,
+            ),
+            children: required
+                ? const <InlineSpan>[
+                    TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                        color: AppTheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ]
+                : null,
+          ),
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+}
+
+class _TwoCol extends StatelessWidget {
+  const _TwoCol({required this.left, required this.right});
+
   final Widget left;
   final Widget right;
 
   @override
   Widget build(BuildContext context) {
-    if (!wide) {
-      return Column(
-        children: <Widget>[
-          left,
-          const SizedBox(height: 12),
-          right,
-        ],
-      );
-    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Expanded(child: left),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(child: right),
       ],
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.description,
-  });
+class _PackPreviewCard extends StatelessWidget {
+  const _PackPreviewCard({required this.preview});
 
-  final String title;
-  final String description;
+  final String preview;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(title, style: theme.textTheme.titleMedium),
-        const SizedBox(height: 2),
-        Text(
-          description,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: BrandTeal.soft,
+        borderRadius: AppTheme.borderRadius,
+        border: Border.all(color: BrandTeal.border, width: AppTheme.hairline),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.info_outline,
+            size: 16,
+            color: theme.colorScheme.primary,
           ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              preview,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductImagePicker extends StatelessWidget {
+  const _ProductImagePicker({
+    required this.bytes,
+    required this.networkUrl,
+    required this.enabled,
+    required this.preparing,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final Uint8List? bytes;
+  final String? networkUrl;
+  final bool enabled;
+  final bool preparing;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  bool get _hasLocal => bytes != null && bytes!.isNotEmpty;
+
+  bool get _hasNetwork {
+    final url = networkUrl?.trim() ?? '';
+    return url.isNotEmpty;
+  }
+
+  bool get hasImage => _hasLocal || _hasNetwork;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          t('STORE_FORM.PRODUCT_IMAGE'),
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: AppTheme.ink.withValues(alpha: 0.72),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            InkWell(
+              onTap: enabled ? onPick : null,
+              borderRadius: AppTheme.borderRadius,
+              child: CustomPaint(
+                painter: hasImage ? null : const _DashedBorderPainter(),
+                child: SizedBox(
+                  width: 88,
+                  height: 88,
+                  child: preparing
+                      ? const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : hasImage
+                          ? Stack(
+                              fit: StackFit.expand,
+                              children: <Widget>[
+                                ClipRRect(
+                                  borderRadius: AppTheme.borderRadius,
+                                  child: _hasLocal
+                                      ? Image.memory(
+                                          bytes!,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : Image.network(
+                                          networkUrl!.trim(),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (
+                                            BuildContext context,
+                                            Object error,
+                                            StackTrace? stackTrace,
+                                          ) =>
+                                              ColoredBox(
+                                            color: BrandTeal.soft,
+                                            child: Icon(
+                                              Icons.broken_image_outlined,
+                                              color: AppTheme.ink.withValues(
+                                                alpha: 0.35,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                Positioned(
+                                  right: 4,
+                                  bottom: 4,
+                                  child: Material(
+                                    color: Colors.white,
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: enabled ? onPick : null,
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(4),
+                                        child: Icon(
+                                          Icons.edit_outlined,
+                                          size: 14,
+                                          color: AppTheme.ink,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.photo_camera_outlined,
+                                  color: Brand.themeColor.withValues(
+                                    alpha: 0.85,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  t('STORE_FORM.PRODUCT_IMAGE_ADD'),
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 10.5,
+                                    color: Brand.themeColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                ),
+              ),
+            ),
+            if (hasImage) ...<Widget>[
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: enabled ? onRemove : null,
+                child: Text(t('STORE_FORM.PRODUCT_IMAGE_REMOVE')),
+              ),
+            ],
+          ],
         ),
       ],
     );
   }
+}
+
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Brand.themeColor.withValues(alpha: 0.45)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    const dash = 5.0;
+    const gap = 3.5;
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0.6, 0.6, size.width - 1.2, size.height - 1.2),
+      const Radius.circular(AppTheme.radius),
+    );
+    final path = Path()..addRRect(rrect);
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = distance + dash;
+        canvas.drawPath(
+          metric.extractPath(distance, next.clamp(0, metric.length)),
+          paint,
+        );
+        distance = next + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+abstract final class BrandTeal {
+  static const Color soft = Color(0xFFF0FDFA);
+  static const Color border = Color(0xFFCCFBF1);
 }

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../../core/brand.dart';
 import '../../../core/format.dart';
 import '../../../core/i18n.dart';
 import '../../../core/packaging.dart';
 import '../../../core/packaging_constants.dart';
+import '../../../core/product_image_prepare.dart';
 import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/catalog_product.dart';
@@ -47,11 +50,15 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
   late String _primaryPackType;
   late int _primaryPackQuantity;
   bool _requiresRx = false;
+  bool _isFeatured = false;
   bool _loadingCategories = true;
   bool _genericEdited = false;
   String? _error;
   DateTime? _manufacturedAt;
   DateTime? _expiresAt;
+  Uint8List? _imageBytes;
+  String _imageFilename = 'product.webp';
+  bool _preparingImage = false;
 
   static const double _fieldGap = 10;
   static const EdgeInsets _densePad = EdgeInsets.symmetric(
@@ -159,6 +166,63 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
     }
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    if (_preparingImage) return;
+    setState(() {
+      _preparingImage = true;
+      _error = null;
+    });
+    try {
+      final prepared = await ProductImagePrepare.pickCropAndCompress(
+        context: context,
+        source: source,
+      );
+      if (!mounted) return;
+      if (prepared == null) return;
+      setState(() {
+        _imageBytes = prepared.bytes;
+        _imageFilename = prepared.filename;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _error = t('STORE_FORM.PRODUCT_IMAGE_PREPARE_FAILED'),
+      );
+      debugPrint('Product image prepare failed: $error');
+    } finally {
+      if (mounted) setState(() => _preparingImage = false);
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: Text(t('STORE_FORM.PRODUCT_IMAGE_GALLERY')),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(t('STORE_FORM.PRODUCT_IMAGE_CAMERA')),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (source == null || !mounted) return;
+    await _pickImage(source);
+  }
+
   Future<void> _pickDate({required bool manufacturing}) async {
     final initial = manufacturing
         ? (_manufacturedAt ?? DateTime.now())
@@ -230,6 +294,7 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
             primaryPackType: _primaryPackType,
             primaryPackQuantity: packQty,
             requiresPrescription: _requiresRx,
+            isFeatured: _isFeatured,
             openingBatch: OpeningBatchInput(
               batchNo: _batchNo.text,
               quantity: quantity,
@@ -240,6 +305,8 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
               expiresAt: _isoDate(_expiresAt),
             ),
           ),
+          imageBytes: _imageBytes,
+          imageFilename: _imageFilename,
         );
 
     if (!mounted) return;
@@ -253,17 +320,43 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
   }
 
   InputDecoration _deco({
-    required String label,
     String? hint,
     Widget? prefixIcon,
-    bool dense = false,
+    Widget? suffixIcon,
+    bool dense = true,
+    Color? fillColor,
   }) {
     return InputDecoration(
-      labelText: label,
       hintText: hint,
       prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
       isDense: dense,
+      filled: fillColor != null,
+      fillColor: fillColor,
       contentPadding: dense ? _densePad : null,
+      hintStyle: TextStyle(
+        fontSize: 13,
+        color: AppTheme.ink.withValues(alpha: 0.38),
+      ),
+    );
+  }
+
+  Future<String?> _pickOption({
+    required String title,
+    required List<_SelectOption> options,
+    String? selected,
+    String? subtitle,
+    String? searchHint,
+    IconData? headerIcon,
+  }) {
+    return _showOptionBottomSheet(
+      context: context,
+      title: title,
+      subtitle: subtitle,
+      searchHint: searchHint,
+      headerIcon: headerIcon,
+      options: options,
+      selected: selected,
     );
   }
 
@@ -272,6 +365,7 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
     ref.watch(localeProvider);
     final busy = ref.watch(medicinesProvider).busyWrite;
     final theme = Theme.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 390;
     final qtyEditable = isPackQuantityEditable(_dosageForm, _baseUnit);
     final allowedPackTypes = getAllowedPackTypesForDosageForm(_dosageForm);
     final preview = formatPackLabel(
@@ -286,6 +380,7 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
     );
 
     return Scaffold(
+      backgroundColor: Brand.themeBackground,
       appBar: StaffAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -303,61 +398,44 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
               child: _loadingCategories
                   ? const Center(child: CircularProgressIndicator())
                   : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 12 : 16,
+                        10,
+                        compact ? 12 : 16,
+                        24,
+                      ),
                       children: <Widget>[
-                        Text(
-                          t('STORE_FORM.CATALOG_CUSTOM_HINT'),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.65),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
                         _FormSection(
                           title: t('STORE_FORM.PRODUCT_INFO_SECTION'),
-                          description:
-                              t('STORE_FORM.PRODUCT_INFO_SECTION_DESC'),
+                          icon: Icons.medication_outlined,
+                          initiallyExpanded: true,
+                          compact: compact,
                           child: Column(
                             children: <Widget>[
-                              DropdownButtonFormField<String>(
-                                // ignore: deprecated_member_use
-                                value: _categoryId,
-                                decoration: _deco(
-                                  label: t('STORE_FORM.CATEGORIES_TITLE'),
-                                  prefixIcon: const Icon(Icons.sell_outlined),
-                                ),
-                                items: _categories
-                                    .map(
-                                      (Category c) => DropdownMenuItem<String>(
-                                        value: c.id,
-                                        child: Text(c.name),
-                                      ),
-                                    )
-                                    .toList(growable: false),
-                                onChanged: busy
-                                    ? null
-                                    : (String? value) =>
-                                        setState(() => _categoryId = value),
-                                validator: (String? value) {
-                                  if (value == null || value.isEmpty) {
-                                    return t('STORE_FORM.CATEGORIES_TITLE');
-                                  }
-                                  return null;
-                                },
+                              _ProductImagePicker(
+                                bytes: _imageBytes,
+                                enabled: !busy && !_preparingImage,
+                                preparing: _preparingImage,
+                                onPick: _showImageSourceSheet,
+                                onRemove: () => setState(() {
+                                  _imageBytes = null;
+                                  _imageFilename = 'product.webp';
+                                }),
                               ),
                               const SizedBox(height: _fieldGap),
-                              _TwoCol(
-                                left: TextFormField(
+                              _LabeledField(
+                                label: t('STORE_FORM.PRODUCT_NAME'),
+                                required: true,
+                                child: TextFormField(
                                   controller: _name,
                                   textCapitalization: TextCapitalization.words,
                                   onChanged: _onNameChanged,
                                   decoration: _deco(
-                                    label: t('STORE_FORM.PRODUCT_NAME'),
                                     hint: t(
                                       'STORE_FORM.PRODUCT_NAME_PLACEHOLDER',
                                     ),
                                     prefixIcon:
-                                        const Icon(Icons.medication_outlined),
+                                        const Icon(Icons.inventory_2_outlined),
                                   ),
                                   validator: (String? value) {
                                     final text = value?.trim() ?? '';
@@ -367,28 +445,30 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                                     return null;
                                   },
                                 ),
-                                right: TextFormField(
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STORE_FORM.GENERIC_NAME'),
+                                child: TextFormField(
                                   controller: _generic,
                                   textCapitalization: TextCapitalization.words,
                                   onChanged: _onGenericChanged,
                                   decoration: _deco(
-                                    label: t('STORE_FORM.GENERIC_NAME'),
                                     hint: t(
                                       'STORE_FORM.GENERIC_NAME_PLACEHOLDER',
                                     ),
                                     prefixIcon: const Icon(
-                                      Icons.inventory_2_outlined,
+                                      Icons.medication_outlined,
                                     ),
                                   ),
                                 ),
                               ),
                               const SizedBox(height: _fieldGap),
-                              _TwoCol(
-                                left: TextFormField(
+                              _LabeledField(
+                                label: t('STOREFRONT.PRODUCT_MANUFACTURER'),
+                                child: TextFormField(
                                   controller: _manufacturer,
                                   decoration: _deco(
-                                    label:
-                                        t('STOREFRONT.PRODUCT_MANUFACTURER'),
                                     hint: t(
                                       'STORE_FORM.MANUFACTURER_PLACEHOLDER',
                                     ),
@@ -396,46 +476,105 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                                         const Icon(Icons.apartment_outlined),
                                   ),
                                 ),
-                                right: TextFormField(
-                                  controller: _strength,
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _LabeledField(
+                                label: t('STORE_FORM.CATEGORIES_TITLE'),
+                                required: true,
+                                child: _SheetSelectField(
+                                  value: _categoryId,
+                                  enabled: !busy,
+                                  options: _categories
+                                      .map(
+                                        (Category c) => _SelectOption(
+                                          value: c.id,
+                                          label: c.name,
+                                        ),
+                                      )
+                                      .toList(growable: false),
                                   decoration: _deco(
-                                    label: t('STORE_FORM.STRENGTH'),
-                                    hint:
-                                        t('STORE_FORM.STRENGTH_PLACEHOLDER'),
+                                    hint: t('STORE_FORM.CATEGORIES_TITLE'),
                                     prefixIcon:
-                                        const Icon(Icons.info_outline),
+                                        const Icon(Icons.sell_outlined),
+                                  ),
+                                  title: t('STORE_FORM.CATEGORY_PICK_TITLE'),
+                                  subtitle: t(
+                                    'STORE_FORM.CATEGORY_PICK_SUBTITLE',
+                                  ),
+                                  searchHint:
+                                      t('STORE_FORM.SEARCH_CATEGORIES'),
+                                  headerIcon: Icons.grid_view_rounded,
+                                  onPick: _pickOption,
+                                  onChanged: (String value) =>
+                                      setState(() => _categoryId = value),
+                                  validator: (String? value) {
+                                    if (value == null || value.isEmpty) {
+                                      return t('STORE_FORM.CATEGORIES_TITLE');
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: _fieldGap),
+                              _TwoCol(
+                                left: _LabeledField(
+                                  label: t('STORE_FORM.STRENGTH'),
+                                  child: TextFormField(
+                                    controller: _strength,
+                                    decoration: _deco(
+                                      hint: t(
+                                        'STORE_FORM.STRENGTH_PLACEHOLDER',
+                                      ),
+                                      prefixIcon: const Icon(
+                                        Icons.speed_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                right: _LabeledField(
+                                  label: t('STORE_FORM.DOSAGE_FORM'),
+                                  child: _SheetSelectField(
+                                    value: _dosageForm,
+                                    enabled: !busy,
+                                    options: kDosageFormValues
+                                        .map(
+                                          (String value) => _SelectOption(
+                                            value: value,
+                                            label: _title(value),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                    decoration: _deco(
+                                      prefixIcon: const Icon(
+                                        Icons.medication_liquid_outlined,
+                                      ),
+                                    ),
+                                    title: t('STORE_FORM.DOSAGE_FORM'),
+                                    subtitle: t(
+                                      'STORE_FORM.DOSAGE_FORM_PICK_SUBTITLE',
+                                    ),
+                                    searchHint:
+                                        t('STORE_FORM.SEARCH_DOSAGE_FORM'),
+                                    headerIcon:
+                                        Icons.medication_liquid_outlined,
+                                    onPick: _pickOption,
+                                    onChanged: (String value) =>
+                                        _onDosageChanged(value),
                                   ),
                                 ),
                               ),
                               const SizedBox(height: _fieldGap),
-                              DropdownButtonFormField<String>(
-                                // ignore: deprecated_member_use
-                                value: _dosageForm,
-                                decoration: _deco(
-                                  label: t('STORE_FORM.DOSAGE_FORM'),
-                                  prefixIcon: const Icon(
-                                    Icons.water_drop_outlined,
-                                  ),
-                                ),
-                                items: kDosageFormValues
-                                    .map(
-                                      (String value) =>
-                                          DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(_title(value)),
-                                      ),
-                                    )
-                                    .toList(growable: false),
-                                onChanged: busy ? null : _onDosageChanged,
-                              ),
-                              const SizedBox(height: 4),
                               CheckboxListTile(
                                 contentPadding: EdgeInsets.zero,
                                 controlAffinity:
                                     ListTileControlAffinity.leading,
                                 dense: true,
+                                visualDensity: VisualDensity.compact,
                                 title: Text(
                                   t('STORE_FORM.REQUIRES_PRESCRIPTION'),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontSize: 13,
+                                  ),
                                 ),
                                 value: _requiresRx,
                                 onChanged: busy
@@ -444,76 +583,119 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                                           () => _requiresRx = value ?? false,
                                         ),
                               ),
+                              const SizedBox(height: 4),
+                              Material(
+                                color: BrandTeal.soft,
+                                borderRadius: AppTheme.borderRadius,
+                                child: SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  dense: true,
+                                  secondary: Icon(
+                                    Icons.star_outline_rounded,
+                                    color: Brand.themeColor,
+                                  ),
+                                  value: _isFeatured,
+                                  onChanged: busy
+                                      ? null
+                                      : (bool value) => setState(
+                                            () => _isFeatured = value,
+                                          ),
+                                  title: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED'),
+                                    style:
+                                        theme.textTheme.bodyMedium?.copyWith(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    t('STORE_FORM.PRODUCT_FEATURED_HINT'),
+                                    style:
+                                        theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 11.5,
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                  activeThumbColor: Brand.themeColor,
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 10),
                         _FormSection(
                           title: t('STORE_FORM.PACKAGING_SECTION'),
-                          description:
-                              t('STORE_FORM.PACKAGING_SECTION_SHORT_DESC'),
+                          icon: Icons.layers_outlined,
+                          initiallyExpanded: true,
+                          compact: compact,
                           child: Column(
                             children: <Widget>[
-                              _InfoBanner(
-                                text: t('STORE_FORM.PACKAGING_SECTION_DESC'),
-                                background: BrandTeal.soft,
-                                border: BrandTeal.border,
-                                foreground: const Color(0xFF065F46),
-                              ),
-                              const SizedBox(height: _fieldGap),
                               _TwoCol(
-                                left: DropdownButtonFormField<String>(
-                                  // ignore: deprecated_member_use
-                                  value: allowedPackTypes
-                                          .contains(_primaryPackType)
-                                      ? _primaryPackType
-                                      : allowedPackTypes.first,
-                                  decoration: _deco(
-                                    label: t('STORE_FORM.PRIMARY_PACK_TYPE'),
-                                    prefixIcon:
-                                        const Icon(Icons.layers_outlined),
-                                  ),
-                                  items: allowedPackTypes
-                                      .map(
-                                        (String value) =>
-                                            DropdownMenuItem<String>(
-                                          value: value,
-                                          child: Text(
-                                            getPrimaryPackTypeLabel(value),
+                                left: _LabeledField(
+                                  label: t('STORE_FORM.PRIMARY_PACK_TYPE'),
+                                  child: _SheetSelectField(
+                                    value: allowedPackTypes
+                                            .contains(_primaryPackType)
+                                        ? _primaryPackType
+                                        : allowedPackTypes.first,
+                                    enabled: !busy,
+                                    options: allowedPackTypes
+                                        .map(
+                                          (String value) => _SelectOption(
+                                            value: value,
+                                            label: getPrimaryPackTypeLabel(
+                                              value,
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      busy ? null : _onPackTypeChanged,
-                                ),
-                                right: TextFormField(
-                                  controller: _packQty,
-                                  enabled: !busy && qtyEditable,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: <TextInputFormatter>[
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: _deco(
-                                    label:
-                                        t('STORE_FORM.PRIMARY_PACK_QUANTITY'),
-                                    prefixIcon: const Icon(Icons.tag),
+                                        )
+                                        .toList(growable: false),
+                                    decoration: _deco(
+                                      prefixIcon:
+                                          const Icon(Icons.layers_outlined),
+                                    ),
+                                    title: t('STORE_FORM.PRIMARY_PACK_TYPE'),
+                                    subtitle: t(
+                                      'STORE_FORM.PACK_TYPE_PICK_SUBTITLE',
+                                    ),
+                                    searchHint:
+                                        t('STORE_FORM.SEARCH_PACK_TYPE'),
+                                    headerIcon: Icons.layers_outlined,
+                                    onPick: _pickOption,
+                                    onChanged: (String value) =>
+                                        _onPackTypeChanged(value),
                                   ),
-                                  onChanged: (_) {
-                                    _syncPackQtyFromField();
-                                    setState(() {});
-                                  },
-                                  validator: (String? value) {
-                                    if (!qtyEditable) return null;
-                                    final parsed =
-                                        int.tryParse(value?.trim() ?? '');
-                                    if (parsed == null || parsed < 1) {
-                                      return t(
-                                        'STORE_FORM.PRIMARY_PACK_QUANTITY',
-                                      );
-                                    }
-                                    return null;
-                                  },
+                                ),
+                                right: _LabeledField(
+                                  label: t('STORE_FORM.PRIMARY_PACK_QUANTITY'),
+                                  child: TextFormField(
+                                    controller: _packQty,
+                                    enabled: !busy && qtyEditable,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: <TextInputFormatter>[
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: _deco(
+                                      prefixIcon: const Icon(Icons.tag),
+                                    ),
+                                    onChanged: (_) {
+                                      _syncPackQtyFromField();
+                                      setState(() {});
+                                    },
+                                    validator: (String? value) {
+                                      if (!qtyEditable) return null;
+                                      final parsed =
+                                          int.tryParse(value?.trim() ?? '');
+                                      if (parsed == null || parsed < 1) {
+                                        return t(
+                                          'STORE_FORM.PRIMARY_PACK_QUANTITY',
+                                        );
+                                      }
+                                      return null;
+                                    },
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: _fieldGap),
@@ -521,120 +703,219 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 10),
                         _FormSection(
                           title: t('STORE_FORM.PRICING_SECTION'),
-                          description: t('STORE_FORM.PRICING_SECTION_DESC'),
+                          icon: Icons.currency_rupee,
+                          initiallyExpanded: true,
+                          compact: compact,
                           child: Column(
                             children: <Widget>[
                               const _StockCalcHint(),
                               const SizedBox(height: _fieldGap),
                               _TwoCol(
-                                left: TextFormField(
-                                  controller: _batchNo,
-                                  decoration: _deco(
-                                    label: t('STORE_FORM.BATCH_NO'),
-                                    prefixIcon: const Icon(Icons.tag),
-                                    dense: true,
-                                  ),
-                                  validator: (String? value) {
-                                    if ((value?.trim() ?? '').isEmpty) {
-                                      return t('STORE_FORM.BATCH_NO');
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                right: TextFormField(
-                                  controller: _quantity,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: <TextInputFormatter>[
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: _deco(
-                                    label: t('STORE_FORM.QUANTITY'),
-                                    prefixIcon: const Icon(
-                                      Icons.inventory_2_outlined,
+                                left: _LabeledField(
+                                  label: t('STORE_FORM.PURCHASE_PRICE'),
+                                  child: TextFormField(
+                                    controller: _purchase,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
                                     ),
-                                    dense: true,
+                                    decoration: _deco(
+                                      prefixIcon:
+                                          const Icon(Icons.currency_rupee),
+                                    ),
+                                    validator: (String? value) {
+                                      final parsed = _parseMoney(value ?? '');
+                                      if (parsed == null || parsed < 0) {
+                                        return t('STORE_FORM.PURCHASE_PRICE');
+                                      }
+                                      return null;
+                                    },
                                   ),
-                                  validator: (String? value) {
-                                    final parsed =
-                                        int.tryParse(value?.trim() ?? '');
-                                    if (parsed == null || parsed < 1) {
-                                      return t('STORE_FORM.QUANTITY');
-                                    }
-                                    return null;
-                                  },
+                                ),
+                                right: _LabeledField(
+                                  label: t('STORE_FORM.MRP'),
+                                  child: TextFormField(
+                                    controller: _mrp,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    decoration: _deco(
+                                      prefixIcon:
+                                          const Icon(Icons.currency_rupee),
+                                    ),
+                                    validator: (String? value) {
+                                      final parsed = _parseMoney(value ?? '');
+                                      if (parsed == null || parsed < 0) {
+                                        return t('STORE_FORM.MRP');
+                                      }
+                                      return null;
+                                    },
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: _fieldGap),
-                              _TwoCol(
-                                left: TextFormField(
-                                  controller: _purchase,
+                              _LabeledField(
+                                label: t('STORE_FORM.SELLING_PRICE'),
+                                required: true,
+                                child: TextFormField(
+                                  controller: _selling,
                                   keyboardType:
                                       const TextInputType.numberWithOptions(
                                     decimal: true,
                                   ),
                                   decoration: _deco(
-                                    label: t('STORE_FORM.PURCHASE_PRICE'),
                                     prefixIcon:
                                         const Icon(Icons.currency_rupee),
-                                    dense: true,
+                                    fillColor: BrandTeal.soft,
                                   ),
                                   validator: (String? value) {
                                     final parsed = _parseMoney(value ?? '');
                                     if (parsed == null || parsed < 0) {
-                                      return t('STORE_FORM.PURCHASE_PRICE');
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                right: TextFormField(
-                                  controller: _mrp,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                                  decoration: _deco(
-                                    label: t('STORE_FORM.MRP'),
-                                    prefixIcon:
-                                        const Icon(Icons.currency_rupee),
-                                    dense: true,
-                                  ),
-                                  validator: (String? value) {
-                                    final parsed = _parseMoney(value ?? '');
-                                    if (parsed == null || parsed < 0) {
-                                      return t('STORE_FORM.MRP');
+                                      return t('STORE_FORM.SELLING_PRICE');
                                     }
                                     return null;
                                   },
                                 ),
                               ),
                               const SizedBox(height: _fieldGap),
-                              TextFormField(
-                                controller: _selling,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
+                              if (compact) ...<Widget>[
+                                _TwoCol(
+                                  left: _LabeledField(
+                                    label: t('STORE_FORM.BATCH_NO'),
+                                    child: TextFormField(
+                                      controller: _batchNo,
+                                      decoration: _deco(
+                                        prefixIcon: const Icon(
+                                          Icons.qr_code_2_outlined,
+                                        ),
+                                      ),
+                                      validator: (String? value) {
+                                        if ((value?.trim() ?? '').isEmpty) {
+                                          return t('STORE_FORM.BATCH_NO');
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                  right: _LabeledField(
+                                    label: t('STORE_FORM.QUANTITY'),
+                                    child: TextFormField(
+                                      controller: _quantity,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: <TextInputFormatter>[
+                                        FilteringTextInputFormatter.digitsOnly,
+                                      ],
+                                      decoration: _deco(
+                                        prefixIcon: const Icon(
+                                          Icons.warehouse_outlined,
+                                        ),
+                                      ),
+                                      validator: (String? value) {
+                                        final parsed = int.tryParse(
+                                          value?.trim() ?? '',
+                                        );
+                                        if (parsed == null || parsed < 1) {
+                                          return t('STORE_FORM.QUANTITY');
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
                                 ),
-                                decoration: _deco(
-                                  label: t('STORE_FORM.SELLING_PRICE'),
-                                  prefixIcon:
-                                      const Icon(Icons.currency_rupee),
-                                  dense: true,
+                                const SizedBox(height: _fieldGap),
+                                _LabeledField(
+                                  label: t('STORE_FORM.EXPIRES_AT'),
+                                  child: _DateField(
+                                    value: _expiresAt,
+                                    enabled: !busy,
+                                    dense: true,
+                                    onTap: () =>
+                                        _pickDate(manufacturing: false),
+                                    onClear: () => setState(
+                                      () => _expiresAt = null,
+                                    ),
+                                  ),
                                 ),
-                                validator: (String? value) {
-                                  final parsed = _parseMoney(value ?? '');
-                                  if (parsed == null || parsed < 0) {
-                                    return t('STORE_FORM.SELLING_PRICE');
-                                  }
-                                  return null;
-                                },
-                              ),
+                              ] else
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: _LabeledField(
+                                        label: t('STORE_FORM.BATCH_NO'),
+                                        child: TextFormField(
+                                          controller: _batchNo,
+                                          decoration: _deco(
+                                            prefixIcon: const Icon(
+                                              Icons.qr_code_2_outlined,
+                                            ),
+                                          ),
+                                          validator: (String? value) {
+                                            if ((value?.trim() ?? '')
+                                                .isEmpty) {
+                                              return t('STORE_FORM.BATCH_NO');
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _LabeledField(
+                                        label: t('STORE_FORM.EXPIRES_AT'),
+                                        child: _DateField(
+                                          value: _expiresAt,
+                                          enabled: !busy,
+                                          dense: true,
+                                          onTap: () =>
+                                              _pickDate(manufacturing: false),
+                                          onClear: () => setState(
+                                            () => _expiresAt = null,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _LabeledField(
+                                        label: t('STORE_FORM.QUANTITY'),
+                                        child: TextFormField(
+                                          controller: _quantity,
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters:
+                                              <TextInputFormatter>[
+                                            FilteringTextInputFormatter
+                                                .digitsOnly,
+                                          ],
+                                          decoration: _deco(
+                                            prefixIcon: const Icon(
+                                              Icons.warehouse_outlined,
+                                            ),
+                                          ),
+                                          validator: (String? value) {
+                                            final parsed = int.tryParse(
+                                              value?.trim() ?? '',
+                                            );
+                                            if (parsed == null ||
+                                                parsed < 1) {
+                                              return t('STORE_FORM.QUANTITY');
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               const SizedBox(height: _fieldGap),
-                              _TwoCol(
-                                left: _DateField(
-                                  label: t('STORE_FORM.MANUFACTURED_AT'),
+                              _LabeledField(
+                                label: t('STORE_FORM.MANUFACTURED_AT'),
+                                child: _DateField(
                                   value: _manufacturedAt,
                                   enabled: !busy,
                                   dense: true,
@@ -643,16 +924,6 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                                   onClear: () => setState(
                                     () => _manufacturedAt = null,
                                   ),
-                                ),
-                                right: _DateField(
-                                  label: t('STORE_FORM.EXPIRES_AT'),
-                                  value: _expiresAt,
-                                  enabled: !busy,
-                                  dense: true,
-                                  onTap: () =>
-                                      _pickDate(manufacturing: false),
-                                  onClear: () =>
-                                      setState(() => _expiresAt = null),
                                 ),
                               ),
                             ],
@@ -670,42 +941,45 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
                       ],
                     ),
             ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: busy
-                            ? null
-                            : () => staffBack(
-                                  context,
-                                  fallback: Routes.staffMedicines,
-                                ),
-                        child: Text(t('CANCEL')),
+            ColoredBox(
+              color: Brand.themeBackground,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: busy
+                              ? null
+                              : () => staffBack(
+                                    context,
+                                    fallback: Routes.staffMedicines,
+                                  ),
+                          child: Text(t('CANCEL')),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: FilledButton.icon(
-                        onPressed:
-                            busy || _loadingCategories ? null : _submit,
-                        icon: busy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        label: Text(t('STORE_FORM.CREATE_PRODUCT')),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          onPressed:
+                              busy || _loadingCategories ? null : _submit,
+                          icon: busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.add),
+                          label: Text(t('STORE_FORM.CREATE_PRODUCT')),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -721,25 +995,36 @@ class _MedicinesCreatePageState extends ConsumerState<MedicinesCreatePage> {
   }
 }
 
-class _FormSection extends StatelessWidget {
+class _FormSection extends StatefulWidget {
   const _FormSection({
     required this.title,
-    required this.description,
     required this.child,
+    this.icon,
+    this.initiallyExpanded = true,
+    this.compact = false,
   });
 
   final String title;
-  final String description;
   final Widget child;
+  final IconData? icon;
+  final bool initiallyExpanded;
+  final bool compact;
+
+  @override
+  State<_FormSection> createState() => _FormSectionState();
+}
+
+class _FormSectionState extends State<_FormSection> {
+  late bool _expanded = widget.initiallyExpanded;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final titleSize = widget.compact ? 14.0 : 15.0;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: Colors.white,
         borderRadius: AppTheme.borderRadius,
         border: Border.all(
           color: AppTheme.hairlineColor,
@@ -749,18 +1034,579 @@ class _FormSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Text(title, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 2),
-          Text(
-            description,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+          InkWell(
+            borderRadius: AppTheme.borderRadius,
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                widget.compact ? 12 : 14,
+                12,
+                widget.compact ? 8 : 10,
+                12,
+              ),
+              child: Row(
+                children: <Widget>[
+                  if (widget.icon != null) ...<Widget>[
+                    Icon(
+                      widget.icon,
+                      size: 18,
+                      color: Brand.themeColor,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: titleSize,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          child,
+          if (_expanded)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                widget.compact ? 12 : 14,
+                0,
+                widget.compact ? 12 : 14,
+                widget.compact ? 12 : 14,
+              ),
+              child: widget.child,
+            ),
         ],
       ),
+    );
+  }
+}
+
+class _SelectOption {
+  const _SelectOption({required this.value, required this.label});
+
+  final String value;
+  final String label;
+}
+
+class _OptionVisual {
+  const _OptionVisual({
+    required this.icon,
+    required this.fg,
+    required this.bg,
+  });
+
+  final IconData icon;
+  final Color fg;
+  final Color bg;
+}
+
+_OptionVisual _visualForOption(String label, int index) {
+  final key = label.toLowerCase();
+  if (key.contains('tablet') || key.contains('capsule')) {
+    return const _OptionVisual(
+      icon: Icons.medication_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  if (key.contains('syrup') || key.contains('liquid') || key.contains('bottle')) {
+    return const _OptionVisual(
+      icon: Icons.science_outlined,
+      fg: Color(0xFF2563EB),
+      bg: Color(0xFFDBEAFE),
+    );
+  }
+  if (key.contains('drop')) {
+    return const _OptionVisual(
+      icon: Icons.water_drop_outlined,
+      fg: Color(0xFFB45309),
+      bg: Color(0xFFFFEDD5),
+    );
+  }
+  if (key.contains('inject') || key.contains('vial') || key.contains('ampoule')) {
+    return const _OptionVisual(
+      icon: Icons.vaccines_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  if (key.contains('cream') || key.contains('ointment') || key.contains('gel')) {
+    return const _OptionVisual(
+      icon: Icons.spa_outlined,
+      fg: Color(0xFF7C3AED),
+      bg: Color(0xFFEDE9FE),
+    );
+  }
+  if (key.contains('inhal') || key.contains('device')) {
+    return const _OptionVisual(
+      icon: Icons.air,
+      fg: Color(0xFF059669),
+      bg: Color(0xFFD1FAE5),
+    );
+  }
+  if (key.contains('surg') || key.contains('dress') || key.contains('bandage')) {
+    return const _OptionVisual(
+      icon: Icons.medical_services_outlined,
+      fg: Color(0xFFEA580C),
+      bg: Color(0xFFFFEDD5),
+    );
+  }
+  if (key.contains('baby') || key.contains('infant') || key.contains('paed')) {
+    return const _OptionVisual(
+      icon: Icons.child_care_outlined,
+      fg: Color(0xFFBE123C),
+      bg: Color(0xFFFFE4E6),
+    );
+  }
+  if (key.contains('strip') || key.contains('pack') || key.contains('box')) {
+    return const _OptionVisual(
+      icon: Icons.layers_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    );
+  }
+  const palette = <_OptionVisual>[
+    _OptionVisual(
+      icon: Icons.category_outlined,
+      fg: Color(0xFF0F766E),
+      bg: Color(0xFFCCFBF1),
+    ),
+    _OptionVisual(
+      icon: Icons.inventory_2_outlined,
+      fg: Color(0xFF2563EB),
+      bg: Color(0xFFDBEAFE),
+    ),
+    _OptionVisual(
+      icon: Icons.local_pharmacy_outlined,
+      fg: Color(0xFF7C3AED),
+      bg: Color(0xFFEDE9FE),
+    ),
+    _OptionVisual(
+      icon: Icons.healing_outlined,
+      fg: Color(0xFFEA580C),
+      bg: Color(0xFFFFEDD5),
+    ),
+  ];
+  return palette[index % palette.length];
+}
+
+Future<String?> _showOptionBottomSheet({
+  required BuildContext context,
+  required String title,
+  required List<_SelectOption> options,
+  String? selected,
+  String? subtitle,
+  String? searchHint,
+  IconData? headerIcon,
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (BuildContext context) {
+      return _OptionPickerSheet(
+        title: title,
+        subtitle: subtitle,
+        searchHint: searchHint,
+        headerIcon: headerIcon ?? Icons.grid_view_rounded,
+        options: options,
+        selected: selected,
+      );
+    },
+  );
+}
+
+class _OptionPickerSheet extends StatefulWidget {
+  const _OptionPickerSheet({
+    required this.title,
+    required this.options,
+    required this.headerIcon,
+    this.subtitle,
+    this.searchHint,
+    this.selected,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? searchHint;
+  final IconData headerIcon;
+  final List<_SelectOption> options;
+  final String? selected;
+
+  @override
+  State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
+}
+
+class _OptionPickerSheetState extends State<_OptionPickerSheet> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<_SelectOption> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return widget.options;
+    return widget.options
+        .where((o) => o.label.toLowerCase().contains(q))
+        .toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.78;
+    final filtered = _filtered;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Color(0xFFF0FDFA),
+                Colors.white,
+                Colors.white,
+              ],
+              stops: <double>[0, 0.18, 1],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Brand.themeColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        widget.headerIcon,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            widget.title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                          if (widget.subtitle != null &&
+                              widget.subtitle!.trim().isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.subtitle!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppTheme.ink.withValues(alpha: 0.55),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        foregroundColor: AppTheme.ink.withValues(alpha: 0.65),
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: TextField(
+                  controller: _search,
+                  onChanged: (String value) => setState(() => _query = value),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: widget.searchHint ?? t('STORE_FORM.SEARCH'),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: AppTheme.ink.withValues(alpha: 0.4),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      borderSide: BorderSide(
+                        color: Brand.themeColor,
+                        width: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Flexible(
+                child: filtered.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          t('STORE_FORM.OPTION_PICK_EMPTY'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.ink.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (BuildContext context, int index) {
+                          final option = filtered[index];
+                          final originalIndex = widget.options.indexWhere(
+                            (o) => o.value == option.value,
+                          );
+                          final visual = _visualForOption(
+                            option.label,
+                            originalIndex < 0 ? index : originalIndex,
+                          );
+                          final isSelected = option.value == widget.selected;
+                          return Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: () =>
+                                  Navigator.pop(context, option.value),
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Brand.themeColor
+                                        : const Color(0xFFE2E8F0),
+                                    width: isSelected ? 1.6 : 1,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: <Widget>[
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: visual.bg,
+                                          borderRadius:
+                                              BorderRadius.circular(11),
+                                        ),
+                                        child: Icon(
+                                          visual.icon,
+                                          color: visual.fg,
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          option.label,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        Container(
+                                          width: 26,
+                                          height: 26,
+                                          decoration: BoxDecoration(
+                                            color: Brand.themeColor,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.check_rounded,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetSelectField extends FormField<String> {
+  _SheetSelectField({
+    required String? value,
+    required List<_SelectOption> options,
+    required String title,
+    required Future<String?> Function({
+      required String title,
+      required List<_SelectOption> options,
+      String? selected,
+      String? subtitle,
+      String? searchHint,
+      IconData? headerIcon,
+    }) onPick,
+    required ValueChanged<String> onChanged,
+    required InputDecoration decoration,
+    String? subtitle,
+    String? searchHint,
+    IconData? headerIcon,
+    super.validator,
+    bool enabled = true,
+  }) : super(
+          initialValue: value,
+          builder: (FormFieldState<String> field) {
+            final current = value ?? field.value;
+            String? label;
+            for (final option in options) {
+              if (option.value == current) {
+                label = option.label;
+                break;
+              }
+            }
+            final hintColor = AppTheme.ink.withValues(alpha: 0.38);
+            return InkWell(
+              borderRadius: AppTheme.borderRadius,
+              onTap: !enabled || options.isEmpty
+                  ? null
+                  : () async {
+                      final picked = await onPick(
+                        title: title,
+                        options: options,
+                        selected: current,
+                        subtitle: subtitle,
+                        searchHint: searchHint,
+                        headerIcon: headerIcon,
+                      );
+                      if (picked == null) return;
+                      field.didChange(picked);
+                      onChanged(picked);
+                    },
+              child: InputDecorator(
+                isEmpty: label == null || label.isEmpty,
+                decoration: decoration.copyWith(
+                  errorText: field.errorText,
+                  suffixIcon: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: enabled
+                        ? AppTheme.ink.withValues(alpha: 0.45)
+                        : AppTheme.ink.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Text(
+                  label ?? decoration.hintText ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(field.context).textTheme.bodyLarge?.copyWith(
+                        fontSize: 14,
+                        color: label == null ? hintColor : null,
+                      ),
+                ),
+              ),
+            );
+          },
+        );
+}
+
+class _LabeledField extends StatelessWidget {
+  const _LabeledField({
+    required this.label,
+    required this.child,
+    this.required = false,
+  });
+
+  final String label;
+  final Widget child;
+  final bool required;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text.rich(
+          TextSpan(
+            text: label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: AppTheme.ink.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w600,
+              fontSize: 12.5,
+            ),
+            children: required
+                ? const <InlineSpan>[
+                    TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                        color: AppTheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ]
+                : null,
+          ),
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
     );
   }
 }
@@ -785,40 +1631,6 @@ class _TwoCol extends StatelessWidget {
   }
 }
 
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner({
-    required this.text,
-    required this.background,
-    required this.border,
-    required this.foreground,
-  });
-
-  final String text;
-  final Color background;
-  final Color border;
-  final Color foreground;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: AppTheme.borderRadius,
-        border: Border.all(color: border, width: AppTheme.hairline),
-      ),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: foreground,
-              height: 1.35,
-            ),
-      ),
-    );
-  }
-}
-
 class _PackPreviewCard extends StatelessWidget {
   const _PackPreviewCard({required this.preview});
 
@@ -828,6 +1640,7 @@ class _PackPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: BrandTeal.soft,
@@ -836,41 +1649,20 @@ class _PackPreviewCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: BrandTeal.border),
-            ),
-            child: Icon(
-              Icons.inventory_2_outlined,
-              size: 16,
-              color: theme.colorScheme.primary,
-            ),
+          Icon(
+            Icons.info_outline,
+            size: 16,
+            color: theme.colorScheme.primary,
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  t('STORE_FORM.PACKAGING_PREVIEW').toUpperCase(),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-                Text(
-                  preview,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+            child: Text(
+              preview,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
             ),
           ),
         ],
@@ -897,7 +1689,7 @@ class _StockCalcHint extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
         color: amberBg,
         borderRadius: AppTheme.borderRadius,
@@ -908,37 +1700,39 @@ class _StockCalcHint extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(Icons.info_outline, size: 16, color: Color(0xFFD97706)),
-              const SizedBox(width: 6),
+              const Icon(Icons.info_outline, size: 14, color: Color(0xFFD97706)),
+              const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   t('STORE_FORM.STOCK_CALC_TITLE'),
                   style: theme.textTheme.titleSmall?.copyWith(
                     color: amberFg,
                     fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             t('STORE_FORM.STOCK_CALC_DESC'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: amberFg.withValues(alpha: 0.85),
+              fontSize: 11.5,
               height: 1.3,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: 5,
+            runSpacing: 5,
             children: examples
                 .map(
                   (String text) => Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
+                      horizontal: 7,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF3C7),
@@ -948,6 +1742,7 @@ class _StockCalcHint extends StatelessWidget {
                       text,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: amberFg,
+                        fontSize: 10.5,
                       ),
                     ),
                   ),
@@ -962,7 +1757,6 @@ class _StockCalcHint extends StatelessWidget {
 
 class _DateField extends StatelessWidget {
   const _DateField({
-    required this.label,
     required this.value,
     required this.enabled,
     required this.onTap,
@@ -970,7 +1764,6 @@ class _DateField extends StatelessWidget {
     this.dense = false,
   });
 
-  final String label;
   final DateTime? value;
   final bool enabled;
   final VoidCallback onTap;
@@ -982,7 +1775,6 @@ class _DateField extends StatelessWidget {
     final display = value == null ? 'dd-mm-yyyy' : Format.date(value!);
     return InputDecorator(
       decoration: InputDecoration(
-        labelText: label,
         isDense: dense,
         contentPadding: dense
             ? const EdgeInsets.symmetric(horizontal: 12, vertical: 12)
@@ -1001,8 +1793,10 @@ class _DateField extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Text(
             display,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: dense ? 14 : null,
+                  fontSize: dense ? 13 : null,
                   color: value == null
                       ? Theme.of(context)
                           .colorScheme
@@ -1015,6 +1809,159 @@ class _DateField extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProductImagePicker extends StatelessWidget {
+  const _ProductImagePicker({
+    required this.bytes,
+    required this.enabled,
+    required this.preparing,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final Uint8List? bytes;
+  final bool enabled;
+  final bool preparing;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasImage = bytes != null && bytes!.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          t('STORE_FORM.PRODUCT_IMAGE'),
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: AppTheme.ink.withValues(alpha: 0.72),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            InkWell(
+              onTap: enabled ? onPick : null,
+              borderRadius: AppTheme.borderRadius,
+              child: CustomPaint(
+                painter: hasImage ? null : const _DashedBorderPainter(),
+                child: SizedBox(
+                  width: 88,
+                  height: 88,
+                  child: preparing
+                      ? const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : hasImage
+                          ? Stack(
+                              fit: StackFit.expand,
+                              children: <Widget>[
+                                ClipRRect(
+                                  borderRadius: AppTheme.borderRadius,
+                                  child: Image.memory(
+                                    bytes!,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 4,
+                                  bottom: 4,
+                                  child: Material(
+                                    color: Colors.white,
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: enabled ? onPick : null,
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(4),
+                                        child: Icon(
+                                          Icons.edit_outlined,
+                                          size: 14,
+                                          color: AppTheme.ink,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.photo_camera_outlined,
+                                  color: Brand.themeColor.withValues(
+                                    alpha: 0.85,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  t('STORE_FORM.PRODUCT_IMAGE_ADD'),
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 10.5,
+                                    color: Brand.themeColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                ),
+              ),
+            ),
+            if (hasImage) ...<Widget>[
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: enabled ? onRemove : null,
+                child: Text(t('STORE_FORM.PRODUCT_IMAGE_REMOVE')),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Brand.themeColor.withValues(alpha: 0.45)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    const dash = 5.0;
+    const gap = 3.5;
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0.6, 0.6, size.width - 1.2, size.height - 1.2),
+      const Radius.circular(AppTheme.radius),
+    );
+    final path = Path()..addRRect(rrect);
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = distance + dash;
+        canvas.drawPath(
+          metric.extractPath(distance, next.clamp(0, metric.length)),
+          paint,
+        );
+        distance = next + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 abstract final class BrandTeal {

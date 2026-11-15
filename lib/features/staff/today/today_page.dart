@@ -310,7 +310,7 @@ class _TodayBody extends ConsumerWidget {
           const SizedBox(height: 12),
           _Panel(
             title: t('TODAY.INVENTORY_HEALTH'),
-            onTap: () => context.go(Routes.staffInventory),
+            onTap: () => context.go(Routes.staffMedicines),
             child: _DonutBlock(
               centerPrimary: Format.stock(metrics.totalSkus),
               centerSecondary: t('TODAY.TOTAL_SKUS'),
@@ -399,7 +399,7 @@ class _TodayBody extends ConsumerWidget {
                   background: _DashColor.alertRedBg,
                   accent: _DashColor.cancelled,
                   icon: Icons.warning_amber_rounded,
-                  onTap: () => context.go(Routes.staffInventory),
+                  onTap: () => context.go(Routes.staffMedicines),
                 ),
                 const SizedBox(height: 8),
                 _AlertBar(
@@ -408,7 +408,7 @@ class _TodayBody extends ConsumerWidget {
                   background: _DashColor.alertAmberBg,
                   accent: _DashColor.amber,
                   icon: Icons.warning_amber_rounded,
-                  onTap: () => context.go(Routes.staffInventory),
+                  onTap: () => context.go(Routes.staffMedicines),
                 ),
                 const SizedBox(height: 8),
                 _AlertBar(

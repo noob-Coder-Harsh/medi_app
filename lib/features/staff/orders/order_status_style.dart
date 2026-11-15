@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/brand.dart';
 import '../../../core/theme.dart';
 
 /// Status accents matched to the orders list mock (360px compact cards).
@@ -16,7 +17,7 @@ Color orderStatusAccent(String status) {
     case 'out_for_delivery':
       return const Color(0xFF0891B2);
     case 'delivered':
-      return const Color(0xFF0F766E);
+      return Brand.themeColor;
     case 'cancelled':
       return AppTheme.error;
     case 'refunded':
@@ -24,7 +25,7 @@ Color orderStatusAccent(String status) {
     case 'draft':
       return const Color(0xFF94A3B8);
     default:
-      return const Color(0xFF0F766E);
+      return Brand.themeColor;
   }
 }
 

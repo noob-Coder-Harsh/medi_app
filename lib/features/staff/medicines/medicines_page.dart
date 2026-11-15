@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/brand.dart';
+import '../../../core/empty_list.dart';
 import '../../../core/format.dart';
 import '../../../core/i18n.dart';
 import '../../../core/routes.dart';
@@ -10,8 +11,7 @@ import '../../../core/theme.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/listing.dart';
 import '../../../data/models/staff_store.dart';
-import '../../../data/staff_api_client.dart';
-import '../auth/staff_session.dart';
+import '../../../data/rpc/staff_write_rpc.dart';
 import '../inventory/inventory_controller.dart';
 import '../shell/staff_app_bar.dart';
 import 'catalog_product_card.dart';
@@ -84,19 +84,18 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
   }
 
   Future<void> _toggleActive(ListingCard item) async {
-    final token = ref.read(staffSessionProvider).session?.accessToken;
-    if (token == null || token.isEmpty) {
+    final writes = ref.read(staffWriteRpcProvider);
+    if (writes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(t('AUTH_SUPABASE_MISSING'))),
       );
       return;
     }
     try {
-      await ref.read(staffWriteApiProvider).updateStoreProduct(
-            accessToken: token,
-            storeProductId: item.id,
-            input: UpdateStoreProductInput(isActive: !item.isActive),
-          );
+      await writes.updateStoreListing(
+        storeProductId: item.id,
+        input: UpdateStoreProductInput(isActive: !item.isActive),
+      );
       if (!mounted) return;
       await ref.read(inventoryListProvider.notifier).refresh();
     } catch (error) {
@@ -128,11 +127,13 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add),
-        label: Text(t('STORE_FORM.ADD_PRODUCT')),
-      ),
+      floatingActionButton: state.items.isEmpty
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _create,
+              icon: const Icon(Icons.add),
+              label: Text(t('STORE_FORM.ADD_PRODUCT')),
+            ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -225,35 +226,13 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                t('STORE_FORM.POS_NO_PRODUCTS'),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                t('STORE_FORM.CATALOG_CUSTOM_HINT'),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.65),
-                    ),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _create,
-                child: Text(t('STORE_FORM.ADD_PRODUCT')),
-              ),
-            ],
-          ),
+      return EmptyListBody(
+        icon: Icons.medication_outlined,
+        message: t('STORE_FORM.CATALOG_EMPTY'),
+        action: FilledButton.icon(
+          onPressed: _create,
+          icon: const Icon(Icons.add, size: 20),
+          label: Text(t('STORE_FORM.ADD_PRODUCT')),
         ),
       );
     }

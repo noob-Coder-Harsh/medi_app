@@ -21,7 +21,7 @@ class StoreDetailPage extends ConsumerWidget {
   static const Color _mint = Color(0xFFE6F4F1);
   static const Color _label = Color(0xFF64748B);
   static const Color _value = Color(0xFF0F172A);
-  static const String _defaultStoreAsset = 'assets/images/default_store.png';
+  static const String _defaultStoreAsset = Brand.logoAsset;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

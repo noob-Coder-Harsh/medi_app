@@ -34,7 +34,8 @@ Anon     → GRANT EXECUTE on public listing RPCs only. No table SELECT.
 Owner    → JWT. POS/inventory/dashboard listing RPCs.
          → Other staff lists: read-only SELECT under RLS until a shared list RPC exists.
 Customer → Guest listing = anon RPCs. “My” rows (orders, addresses) = Next + Firebase.
-Writes   → Next only (web actions today; /api/app for Flutter). Not from the Flutter client.
+Writes   → v1 catalog + POS: shared write RPCs (see WRITE_RPCS.md).
+           Images / books / online customer: Next `/api/app`.
 ```
 
 Middleware refreshes the owner session only on `/admin`, `/dashboard`, `/settings`, `/onboarding`, `/auth/store`.

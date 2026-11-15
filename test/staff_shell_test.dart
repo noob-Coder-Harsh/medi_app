@@ -45,7 +45,7 @@ void main() {
     expect(find.byType(BottomSheet), findsNothing);
   });
 
-  testWidgets('onboarding form renders without marketing chrome', (
+  testWidgets('onboarding form renders store setup chrome', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -58,8 +58,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(t('STORE_PANEL_ONBOARDING_TITLE')), findsOneWidget);
-    expect(find.text(t('STAFF.PHARMACY_NAME')), findsOneWidget);
+    expect(find.text(t('STAFF.PHARMACY_NAME')), findsWidgets);
+    expect(find.text(t('STOREFRONT.CITY')), findsWidgets);
+    expect(find.text(t('STOREFRONT.STATE')), findsWidgets);
+    expect(find.text(t('STOREFRONT.PINCODE')), findsWidgets);
     expect(find.text(t('STAFF.ONBOARDING_SUBMIT')), findsOneWidget);
+    expect(find.text(t('STAFF.ONBOARDING_BENEFIT_POS')), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
   });
 

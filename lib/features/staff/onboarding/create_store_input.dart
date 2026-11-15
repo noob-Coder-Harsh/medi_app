@@ -12,6 +12,7 @@ class CreateStoreInput {
     this.gstNumber,
     this.drugLicenseNumber,
     this.slug,
+    this.trackStock = true,
   });
 
   final String name;
@@ -26,4 +27,5 @@ class CreateStoreInput {
   final String? gstNumber;
   final String? drugLicenseNumber;
   final String? slug;
+  final bool trackStock;
 }

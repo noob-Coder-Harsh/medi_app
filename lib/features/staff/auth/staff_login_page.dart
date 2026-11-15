@@ -23,6 +23,7 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _scrollController = ScrollController();
   var _busy = false;
   var _obscure = true;
   String? _error;
@@ -33,6 +34,7 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -41,7 +43,8 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
     ref.watch(localeProvider);
     final session = ref.watch(staffSessionProvider);
     final theme = Theme.of(context);
-    final size = MediaQuery.sizeOf(context);
+    final media = MediaQuery.of(context);
+    final keyboardOpen = media.viewInsets.bottom > 0;
 
     if (!_resumeChecked && session.ready && session.isSignedIn) {
       _resumeChecked = true;
@@ -51,10 +54,17 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
       });
     }
 
-    final artGap = (size.height * 0.18).clamp(96.0, 200.0);
+    // Cold start: wait for hydrate instead of painting login then jumping away.
+    if (!session.ready || session.isSignedIn) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
       body: Stack(
         fit: StackFit.expand,
         children: <Widget>[
@@ -79,172 +89,249 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
                   ),
                 ),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-                    children: <Widget>[
-                      const SizedBox(height: 4),
-                      Text(
-                        Brand.appName,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: Brand.themeColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 28,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        t('STORE_LOGIN_TAGLINE'),
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.ink.withValues(alpha: 0.45),
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
-                        ),
-                      ),
-                      SizedBox(height: artGap),
-                      Text(
-                        t('STORE_LOGIN_TITLE'),
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: AppTheme.ink,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 26,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        t('STORE_LOGIN_SUBTITLE'),
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.ink.withValues(alpha: 0.55),
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            if (_error != null) ...<Widget>[
-                              StaffAuthErrorBanner(message: _error!),
-                              const SizedBox(height: 16),
-                            ],
-                            if (_info != null) ...<Widget>[
-                              _InfoBanner(message: _info!),
-                              const SizedBox(height: 16),
-                            ],
-                            TextFormField(
-                              controller: _email,
-                              keyboardType: TextInputType.emailAddress,
-                              autofillHints: const <String>[
-                                AutofillHints.email,
-                              ],
-                              textInputAction: TextInputAction.next,
-                              style: theme.textTheme.bodyLarge,
-                              decoration: _fieldDecoration(
-                                hint: t('AUTH_EMAIL_LABEL'),
-                                prefix: Icons.mail_outline_rounded,
-                              ),
-                              validator: _validateEmail,
+                  child: LayoutBuilder(
+                    builder: (BuildContext context, BoxConstraints constraints) {
+                      final bottomPad = keyboardOpen ? 12.0 : 24.0;
+
+                      return AnimatedPadding(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        padding: EdgeInsets.fromLTRB(20, 0, 20, bottomPad),
+                        child: SingleChildScrollView(
+                          controller: _scrollController,
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight:
+                                  (constraints.maxHeight - bottomPad)
+                                      .clamp(0.0, double.infinity),
                             ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _password,
-                              obscureText: _obscure,
-                              autofillHints: const <String>[
-                                AutofillHints.password,
-                              ],
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => _submit(),
-                              style: theme.textTheme.bodyLarge,
-                              decoration: _fieldDecoration(
-                                hint: t('AUTH_PASSWORD_LABEL'),
-                                prefix: Icons.lock_outline_rounded,
-                                suffix: IconButton(
-                                  onPressed: () =>
-                                      setState(() => _obscure = !_obscure),
-                                  icon: Icon(
-                                    _obscure
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
-                                    color: AppTheme.ink.withValues(alpha: 0.4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: <Widget>[
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.94),
+                                    borderRadius: const BorderRadius.all(
+                                      Radius.circular(22),
+                                    ),
+                                    border: Border.all(
+                                      color: AppTheme.hairlineColor.withValues(
+                                        alpha: 0.85,
+                                      ),
+                                      width: AppTheme.hairline,
+                                    ),
+                                    boxShadow: <BoxShadow>[
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.06,
+                                        ),
+                                        blurRadius: 24,
+                                        offset: const Offset(0, 10),
+                                      ),
+                                      BoxShadow(
+                                        color: Brand.themeColor.withValues(
+                                          alpha: 0.06,
+                                        ),
+                                        blurRadius: 18,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ),
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return t('AUTH_REQUIRED');
-                                }
-                                return null;
-                              },
-                            ),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: _busy ? null : _forgotPassword,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Brand.themeColor,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 8,
-                                  ),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: Text(
-                                  t('AUTH_FORGOT_PASSWORD'),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              height: AppTheme.chargeHeight,
-                              child: FilledButton(
-                                onPressed: _busy ? null : _submit,
-                                style: AppTheme.charge.copyWith(
-                                  shape: const WidgetStatePropertyAll(
-                                    RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(14),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      20,
+                                      22,
+                                      20,
+                                      20,
+                                    ),
+                                    child: Form(
+                                      key: _formKey,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: <Widget>[
+                                          Text(
+                                            t('STORE_LOGIN_TITLE'),
+                                            style: theme
+                                                .textTheme.headlineSmall
+                                                ?.copyWith(
+                                              color: Brand.themeColor,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 22,
+                                              height: 1.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            t('STORE_LOGIN_SUBTITLE'),
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                              color: AppTheme.ink.withValues(
+                                                alpha: 0.55,
+                                              ),
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 14,
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 20),
+                                          if (_error != null) ...<Widget>[
+                                            StaffAuthErrorBanner(
+                                              message: _error!,
+                                            ),
+                                            const SizedBox(height: 14),
+                                          ],
+                                          if (_info != null) ...<Widget>[
+                                            _InfoBanner(message: _info!),
+                                            const SizedBox(height: 14),
+                                          ],
+                                          TextFormField(
+                                            controller: _email,
+                                            keyboardType:
+                                                TextInputType.emailAddress,
+                                            autofillHints: const <String>[
+                                              AutofillHints.email,
+                                            ],
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            onTap: _ensureFieldVisible,
+                                            style: theme.textTheme.bodyLarge,
+                                            decoration: _fieldDecoration(
+                                              hint: t('AUTH_EMAIL_LABEL'),
+                                              prefix:
+                                                  Icons.mail_outline_rounded,
+                                            ),
+                                            validator: _validateEmail,
+                                          ),
+                                          const SizedBox(height: 14),
+                                          TextFormField(
+                                            controller: _password,
+                                            obscureText: _obscure,
+                                            autofillHints: const <String>[
+                                              AutofillHints.password,
+                                            ],
+                                            textInputAction:
+                                                TextInputAction.done,
+                                            onTap: _ensureFieldVisible,
+                                            onFieldSubmitted: (_) => _submit(),
+                                            style: theme.textTheme.bodyLarge,
+                                            decoration: _fieldDecoration(
+                                              hint: t('AUTH_PASSWORD_LABEL'),
+                                              prefix:
+                                                  Icons.lock_outline_rounded,
+                                              suffix: IconButton(
+                                                onPressed: () => setState(
+                                                  () => _obscure = !_obscure,
+                                                ),
+                                                icon: Icon(
+                                                  _obscure
+                                                      ? Icons
+                                                          .visibility_outlined
+                                                      : Icons
+                                                          .visibility_off_outlined,
+                                                  color: AppTheme.ink
+                                                      .withValues(alpha: 0.4),
+                                                ),
+                                              ),
+                                            ),
+                                            validator: (String? value) {
+                                              if (value == null ||
+                                                  value.isEmpty) {
+                                                return t('AUTH_REQUIRED');
+                                              }
+                                              return null;
+                                            },
+                                          ),
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: TextButton(
+                                              onPressed: _busy
+                                                  ? null
+                                                  : _forgotPassword,
+                                              style: TextButton.styleFrom(
+                                                foregroundColor:
+                                                    Brand.themeColor,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                  vertical: 8,
+                                                ),
+                                                minimumSize: Size.zero,
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                              ),
+                                              child: Text(
+                                                t('AUTH_FORGOT_PASSWORD'),
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          SizedBox(
+                                            height: AppTheme.chargeHeight,
+                                            child: FilledButton(
+                                              onPressed:
+                                                  _busy ? null : _submit,
+                                              style: AppTheme.charge.copyWith(
+                                                shape:
+                                                    const WidgetStatePropertyAll(
+                                                  RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.all(
+                                                      Radius.circular(14),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              child: _busy
+                                                  ? Text(t('AUTH_SIGNING_IN'))
+                                                  : Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: <Widget>[
+                                                        const Icon(
+                                                          Icons.login_rounded,
+                                                          size: 20,
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 10,
+                                                        ),
+                                                        Text(
+                                                          t('STORE_SIGN_IN'),
+                                                        ),
+                                                      ],
+                                                    ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 18),
+                                          StaffAuthFooterLink(
+                                            message: t('STORE_NO_ACCOUNT'),
+                                            linkLabel: t('STORE_CREATE_ONE'),
+                                            onTap: () =>
+                                                context.go(Routes.staffSignup),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ),
-                                child: _busy
-                                    ? Text(t('AUTH_SIGNING_IN'))
-                                    : Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: <Widget>[
-                                          const Icon(
-                                            Icons.login_rounded,
-                                            size: 20,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Text(t('STORE_SIGN_IN')),
-                                        ],
-                                      ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 28),
-                      StaffAuthFooterLink(
-                        message: t('STORE_NO_ACCOUNT'),
-                        linkLabel: t('STORE_CREATE_ONE'),
-                        onTap: () => context.go(Routes.staffSignup),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ],
@@ -253,6 +340,17 @@ class _StaffLoginPageState extends ConsumerState<StaffLoginPage> {
         ],
       ),
     );
+  }
+
+  void _ensureFieldVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   InputDecoration _fieldDecoration({
