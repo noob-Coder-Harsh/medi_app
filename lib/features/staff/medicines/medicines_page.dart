@@ -14,6 +14,7 @@ import '../../../data/models/staff_store.dart';
 import '../../../data/rpc/staff_write_rpc.dart';
 import '../inventory/inventory_controller.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'catalog_product_card.dart';
 
 class MedicinesPage extends ConsumerStatefulWidget {
@@ -134,7 +135,8 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
               icon: const Icon(Icons.add),
               label: Text(t('STORE_FORM.ADD_PRODUCT')),
             ),
-      body: Column(
+      body: UnfocusOnTap(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
@@ -143,41 +145,16 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
               children: <Widget>[
                 Expanded(
                   flex: 3,
-                  child: TextField(
+                  child: StaffSearchField(
                     controller: _search,
-                    textInputAction: TextInputAction.search,
+                    hintText: t('STORE_FORM.CATALOG_SEARCH_PLACEHOLDER'),
+                    showLoading:
+                        state.loading && _search.text.trim().isNotEmpty,
                     onChanged: (String value) {
                       ref
                           .read(inventoryListProvider.notifier)
                           .setQuery(value);
                     },
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: t('STORE_FORM.CATALOG_SEARCH_PLACEHOLDER'),
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: state.loading
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : (_search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    _search.clear();
-                                    ref
-                                        .read(inventoryListProvider.notifier)
-                                        .setQuery('');
-                                  },
-                                  icon: const Icon(Icons.close, size: 18),
-                                )),
-                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -217,6 +194,7 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
             ),
           Expanded(child: _body(state)),
         ],
+      ),
       ),
     );
   }
@@ -258,6 +236,7 @@ class _MedicinesPageState extends ConsumerState<MedicinesPage> {
           final item = state.items[index];
           return CatalogProductCard(
             item: item,
+            query: state.query,
             onTap: () => context.push(Routes.staffMedicinesProduct(item.id)),
             onAction: (CatalogProductAction action) => _onAction(item, action),
           );
@@ -278,51 +257,61 @@ class _CategoryDropdown extends StatelessWidget {
   final String? selectedId;
   final ValueChanged<String?> onSelected;
 
+  static const _allValue = '__all__';
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final value = selectedId;
     final knownIds = categories.map((StaffCategory c) => c.id).toSet();
     final effectiveValue =
-        value != null && knownIds.contains(value) ? value : null;
+        selectedId != null && knownIds.contains(selectedId) ? selectedId : null;
+    String label = t('STORE_FORM.CATALOG_CHIP_ALL');
+    if (effectiveValue != null) {
+      for (final category in categories) {
+        if (category.id == effectiveValue) {
+          label = category.name;
+          break;
+        }
+      }
+    }
 
-    return DropdownButtonFormField<String?>(
-      // ignore: deprecated_member_use
-      value: effectiveValue,
-      isExpanded: true,
-      icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-      decoration: InputDecoration(
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      hint: Text(
-        t('STORE_FORM.CATALOG_CHIP_ALL'),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.labelLarge,
-      ),
-      items: <DropdownMenuItem<String?>>[
-        DropdownMenuItem<String?>(
-          value: null,
-          child: Text(
-            t('STORE_FORM.CATALOG_CHIP_ALL'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        for (final category in categories)
-          DropdownMenuItem<String?>(
-            value: category.id,
-            child: Text(
-              category.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    return InkWell(
+      borderRadius: AppTheme.borderRadius,
+      onTap: () async {
+        final picked = await showStaffOptionSheet(
+          context: context,
+          title: t('STORE_FORM.CATEGORIES_TITLE'),
+          searchHint: t('STORE_FORM.SEARCH_CATEGORIES'),
+          headerIcon: Icons.sell_outlined,
+          selected: effectiveValue ?? _allValue,
+          options: <StaffSelectOption>[
+            StaffSelectOption(
+              value: _allValue,
+              label: t('STORE_FORM.CATALOG_CHIP_ALL'),
             ),
-          ),
-      ],
-      onChanged: onSelected,
+            for (final category in categories)
+              StaffSelectOption(value: category.id, label: category.name),
+          ],
+        );
+        if (picked == null) return;
+        onSelected(picked == _allValue ? null : picked);
+      },
+      child: InputDecorator(
+        isEmpty: false,
+        decoration: const InputDecoration(
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          filled: true,
+          fillColor: Colors.white,
+          suffixIcon: Icon(Icons.keyboard_arrow_down, size: 20),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelLarge,
+        ),
+      ),
     );
   }
 }

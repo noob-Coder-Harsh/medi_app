@@ -14,6 +14,7 @@ Copied **31 October 2026**. Product shape is locked. Execution playbook is locke
 3. [BUILD_PLAN.md](./BUILD_PLAN.md) — **one step per agent session**, stack, folders, 30 steps
 4. [DATA_PLANE.md](./DATA_PLANE.md) — same RPCs as web, reads vs writes, pagination
 5. [WRITE_RPCS.md](./WRITE_RPCS.md) — v1 staff write RPCs (catalog stock + POS)
+5b. [WRITE_OPS_INVENTORY.md](./WRITE_OPS_INVENTORY.md) — every write by entity: tables, planes, cut/prefetch/BG
 6. [WEB_PROJECT.md](./WEB_PROJECT.md) — what it is, who it is for, purpose, scope, ideal product
 7. [ARCHITECTURE.md](./ARCHITECTURE.md) — stack, auth, data plane, schema map, RPCs, modules, screens
 8. [ui-ux-research.md](./ui-ux-research.md) — phone-first IA, language, visual tokens, current web gaps

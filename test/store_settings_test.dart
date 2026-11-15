@@ -66,8 +66,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(t('MORE.EDIT_STORE')), findsOneWidget);
+    expect(find.text(t('STORE_FORM.SECTION_STATUS')), findsOneWidget);
     expect(find.text(t('STORE_FORM.SECTION_PROFILE')), findsOneWidget);
-    expect(find.text('City Pharmacy'), findsOneWidget);
+    expect(find.text('City Pharmacy'), findsWidgets);
+    expect(find.text(t('STORE_FORM.ACCEPT_ORDERS')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text(t('STORE_FORM.SECTION_ORDERS_DELIVERY')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text(t('STORE_FORM.SECTION_ORDERS_DELIVERY')));
+    await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
       find.text(t('STORE_FORM.MODULE_DELIVERY')),

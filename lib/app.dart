@@ -48,6 +48,7 @@ class _MediAppState extends ConsumerState<MediApp> {
     final locale = ref.watch(localeProvider);
     return MaterialApp.router(
       title: Brand.appName,
+      debugShowCheckedModeBanner: false,
       theme: AppTheme.light(locale),
       locale: locale.flutterLocale,
       supportedLocales: const <Locale>[

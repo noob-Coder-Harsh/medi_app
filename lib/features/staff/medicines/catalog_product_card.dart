@@ -6,6 +6,7 @@ import '../../../core/format.dart';
 import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/listing.dart';
+import '../ui/highlighted_text.dart';
 
 enum CatalogProductAction { edit, addBatch, toggleActive }
 
@@ -15,11 +16,13 @@ class CatalogProductCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     required this.onAction,
+    this.query,
   });
 
   final ListingCard item;
   final VoidCallback onTap;
   final ValueChanged<CatalogProductAction> onAction;
+  final String? query;
 
   @override
   Widget build(BuildContext context) {
@@ -60,8 +63,9 @@ class CatalogProductCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Expanded(
-                          child: Text(
+                          child: HighlightedText(
                             item.name,
+                            query: query,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleSmall?.copyWith(
@@ -252,7 +256,7 @@ class _Thumb extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: ColoredBox(
-        color: Brand.themeBackground,
+        color: Colors.white,
         child: SizedBox(
           width: 64,
           height: 64,

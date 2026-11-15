@@ -31,7 +31,9 @@ class BooksRepository {
       final item = StaffCustomer.fromJoin(record);
       if (item.id.isEmpty) continue;
       if (term.isNotEmpty) {
-        final hay = '${item.displayName} ${item.phone}'.toLowerCase();
+        final hay =
+            '${item.displayName} ${item.phone} ${item.customerId} ${item.id}'
+                .toLowerCase();
         if (!hay.contains(term)) continue;
       }
       out.add(item);

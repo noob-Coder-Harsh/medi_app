@@ -5,6 +5,7 @@ import '../../../core/brand.dart';
 import '../../../core/format.dart';
 import '../../../core/packaging.dart';
 import '../../../core/theme.dart';
+import '../ui/highlighted_text.dart';
 import 'pos_product.dart';
 
 class PosProductTile extends StatelessWidget {
@@ -13,11 +14,13 @@ class PosProductTile extends StatelessWidget {
     required this.product,
     required this.quantityInCart,
     required this.onAdd,
+    this.query,
   });
 
   final PosProduct product;
   final int quantityInCart;
   final VoidCallback onAdd;
+  final String? query;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +62,7 @@ class PosProductTile extends StatelessWidget {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(6),
                         child: ColoredBox(
-                          color: Brand.themeBackground,
+                          color: Colors.white,
                           child: Stack(
                             fit: StackFit.expand,
                             children: <Widget>[
@@ -96,8 +99,9 @@ class PosProductTile extends StatelessWidget {
                     const SizedBox(height: 4),
                     SizedBox(
                       height: nameLineHeight * 2,
-                      child: Text(
+                      child: HighlightedText(
                         product.name,
+                        query: query,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: nameStyle,

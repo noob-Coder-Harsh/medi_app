@@ -124,10 +124,11 @@ class _PosCheckoutPageState extends ConsumerState<PosCheckoutPage> {
     final amounts = _amounts(total);
     final payable =
         _method == PosPaymentMethod.credit ? total : amounts.paid;
-    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
       backgroundColor: Brand.themeBackground,
+      resizeToAvoidBottomInset: true,
       appBar: StaffAppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -177,88 +178,95 @@ class _PosCheckoutPageState extends ConsumerState<PosCheckoutPage> {
                     },
                   ),
           ),
-          Material(
-            elevation: 8,
-            shadowColor: Colors.black26,
-            color: Colors.white,
-            child: Padding(
-              padding: EdgeInsets.only(bottom: keyboard > 0 ? keyboard : 0),
+          Flexible(
+            fit: FlexFit.loose,
+            child: Material(
+              elevation: 8,
+              shadowColor: Colors.black26,
+              color: Colors.white,
               child: SafeArea(
                 top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    _StickyBillingPanel(
-                      expanded: _billingExpanded,
-                      onToggle: () => setState(
-                        () => _billingExpanded = !_billingExpanded,
+                child: SingleChildScrollView(
+                  reverse: keyboardOpen,
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _StickyBillingPanel(
+                        expanded: _billingExpanded,
+                        onToggle: () => setState(
+                          () => _billingExpanded = !_billingExpanded,
+                        ),
+                        itemCount: items.length,
+                        total: total,
+                        payable: payable,
+                        discount: amounts.discount,
+                        isCredit: _method == PosPaymentMethod.credit,
+                        collect: _collect,
+                        onCollectChanged: () {
+                          _collectEdited = true;
+                          setState(() => _error = null);
+                        },
+                        phone: _phone,
+                        customerName: _customer?.name,
+                        phoneError: _phoneError(),
+                        onPhoneChanged: () {
+                          setState(() {
+                            _customer = null;
+                            _error = null;
+                          });
+                        },
+                        method: _method,
+                        payLabel: _payLabel,
+                        onMethodChanged: (PosPaymentMethod next) {
+                          setState(() {
+                            _method = next;
+                            _error = null;
+                          });
+                        },
+                        error: _error,
                       ),
-                      itemCount: items.length,
-                      total: total,
-                      payable: payable,
-                      isCredit: _method == PosPaymentMethod.credit,
-                      collect: _collect,
-                      onCollectChanged: () {
-                        _collectEdited = true;
-                        setState(() => _error = null);
-                      },
-                      phone: _phone,
-                      customerName: _customer?.name,
-                      phoneError: _phoneError(),
-                      onPhoneChanged: () {
-                        setState(() {
-                          _customer = null;
-                          _error = null;
-                        });
-                      },
-                      method: _method,
-                      payLabel: _payLabel,
-                      onMethodChanged: (PosPaymentMethod next) {
-                        setState(() {
-                          _method = next;
-                          _error = null;
-                        });
-                      },
-                      error: _error,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: AppTheme.chargeHeight,
-                        child: FilledButton.icon(
-                          onPressed: _busy
-                              ? null
-                              : () => _charge(
-                                  items,
-                                  total,
-                                  amounts.paid,
-                                  amounts.discount,
-                                ),
-                          style: AppTheme.charge,
-                          icon: _busy
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: AppTheme.chargeHeight,
+                          child: FilledButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => _charge(
+                                    items,
+                                    total,
+                                    amounts.paid,
+                                    amounts.discount,
                                   ),
-                                )
-                              : const Icon(
-                                  Icons.point_of_sale_outlined,
-                                  size: 22,
-                                ),
-                          label: Text(
-                            _busy
-                                ? t('WRITE_LOADING')
-                                : '${t('CHROME.CHARGE')} ${Format.rupee(payable)}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            style: AppTheme.charge,
+                            icon: _busy
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.point_of_sale_outlined,
+                                    size: 22,
+                                  ),
+                            label: Text(
+                              _busy
+                                  ? t('WRITE_LOADING')
+                                  : '${t('CHROME.CHARGE')} ${Format.rupee(payable)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -369,6 +377,7 @@ class _PosCheckoutPageState extends ConsumerState<PosCheckoutPage> {
               itemCount: items.length,
               totalAmount: payable,
               placedAt: result.placedAt ?? '',
+              status: 'completed',
               source: 'pos',
             ),
           );
@@ -587,7 +596,7 @@ class _Thumb extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: ColoredBox(
-        color: _PosCheckoutPageState._mint,
+        color: Colors.white,
         child: SizedBox(
           width: 40,
           height: 40,
@@ -599,7 +608,7 @@ class _Thumb extends StatelessWidget {
                 )
               : CachedNetworkImage(
                   imageUrl: url,
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain,
                   errorWidget: (_, __, ___) => Icon(
                     Icons.medication_outlined,
                     size: 20,
@@ -619,6 +628,7 @@ class _StickyBillingPanel extends StatelessWidget {
     required this.itemCount,
     required this.total,
     required this.payable,
+    required this.discount,
     required this.isCredit,
     required this.collect,
     required this.onCollectChanged,
@@ -637,6 +647,7 @@ class _StickyBillingPanel extends StatelessWidget {
   final int itemCount;
   final double total;
   final double payable;
+  final double discount;
   final bool isCredit;
   final TextEditingController collect;
   final VoidCallback onCollectChanged;
@@ -707,7 +718,7 @@ class _StickyBillingPanel extends StatelessWidget {
                 _BillingTotals(
                   itemCount: itemCount,
                   total: total,
-                  payable: payable,
+                  discount: discount,
                   isCredit: isCredit,
                   collect: collect,
                   onCollectChanged: onCollectChanged,
@@ -778,7 +789,7 @@ class _BillingTotals extends StatelessWidget {
   const _BillingTotals({
     required this.itemCount,
     required this.total,
-    required this.payable,
+    required this.discount,
     required this.isCredit,
     required this.collect,
     required this.onCollectChanged,
@@ -786,7 +797,7 @@ class _BillingTotals extends StatelessWidget {
 
   final int itemCount;
   final double total;
-  final double payable;
+  final double discount;
   final bool isCredit;
   final TextEditingController collect;
   final VoidCallback onCollectChanged;
@@ -807,24 +818,72 @@ class _BillingTotals extends StatelessWidget {
                 ),
               ),
             ),
+            Text(
+              Format.rupee(total),
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: _PosCheckoutPageState._ink,
+              ),
+            ),
+          ],
+        ),
+        if (!isCredit && discount > 0) ...<Widget>[
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  t('STORE_FORM.POS_DISCOUNT'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.amber,
+                  ),
+                ),
+              ),
+              Text(
+                '- ${Format.rupee(discount)}',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.amber,
+                ),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                isCredit
+                    ? t('STORE_FORM.POS_REMAINING_AMOUNT')
+                    : t('STORE_FORM.POS_PAYABLE'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: isCredit ? AppTheme.amber : _PosCheckoutPageState._ink,
+                ),
+              ),
+            ),
             if (isCredit)
               Text(
                 Format.rupee(total),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.amber,
                 ),
               )
             else
               SizedBox(
-                width: 128,
+                width: 140,
                 child: TextField(
+                  key: const Key('pos-checkout-collect'),
                   controller: collect,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   textAlign: TextAlign.right,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: Brand.themeColor,
                   ),
                   inputFormatters: <TextInputFormatter>[
@@ -834,7 +893,7 @@ class _BillingTotals extends StatelessWidget {
                     isDense: true,
                     prefixText: '₹ ',
                     prefixStyle: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       color: Brand.themeColor,
                     ),
                     suffixIcon: const Icon(
@@ -869,29 +928,6 @@ class _BillingTotals extends StatelessWidget {
                   onChanged: (_) => onCollectChanged(),
                 ),
               ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                isCredit
-                    ? t('STORE_FORM.POS_REMAINING_AMOUNT')
-                    : t('STORE_FORM.POS_PAYABLE'),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: isCredit ? AppTheme.amber : _PosCheckoutPageState._ink,
-                ),
-              ),
-            ),
-            Text(
-              Format.rupee(isCredit ? total : payable),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: isCredit ? AppTheme.amber : Brand.themeColor,
-              ),
-            ),
           ],
         ),
       ],
@@ -949,6 +985,10 @@ class _PhoneRow extends StatelessWidget {
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: '9876543210',
+                  hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                    color: const Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w400,
+                  ),
                   errorText: phoneError,
                   filled: true,
                   fillColor: Brand.themeBackground,

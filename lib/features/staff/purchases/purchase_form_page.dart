@@ -10,6 +10,7 @@ import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/purchase.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'purchase_product_picker.dart';
 import 'purchases_controller.dart';
 
@@ -179,31 +180,34 @@ class _PurchaseFormPageState extends ConsumerState<PurchaseFormPage> {
       ),
       body: form.loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : UnfocusOnTap(
+              child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
               children: <Widget>[
                 Row(
                   children: <Widget>[
                     Expanded(
-                      child: DropdownButtonFormField<String>(
-                        // ignore: deprecated_member_use
+                      child: StaffSheetSelectField(
                         value: form.supplierId,
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.PURCHASE_SUPPLIER'),
-                        ),
-                        items: form.suppliers
+                        enabled: !form.busy && form.suppliers.isNotEmpty,
+                        options: form.suppliers
                             .map(
-                              (SupplierOption s) => DropdownMenuItem<String>(
+                              (SupplierOption s) => StaffSelectOption(
                                 value: s.id,
-                                child: Text(s.name),
+                                label: s.name,
                               ),
                             )
                             .toList(growable: false),
-                        onChanged: form.busy
-                            ? null
-                            : (String? value) => ref
-                                .read(purchaseFormProvider.notifier)
-                                .setSupplier(value),
+                        decoration: InputDecoration(
+                          labelText: t('STORE_FORM.PURCHASE_SUPPLIER'),
+                          hintText: t('STORE_FORM.PURCHASE_SELECT_SUPPLIER'),
+                        ),
+                        title: t('STORE_FORM.PURCHASE_SUPPLIER'),
+                        searchHint: t('STORE_FORM.SEARCH_SUPPLIERS'),
+                        headerIcon: Icons.local_shipping_outlined,
+                        onChanged: (String value) => ref
+                            .read(purchaseFormProvider.notifier)
+                            .setSupplier(value),
                       ),
                     ),
                     IconButton(
@@ -303,77 +307,65 @@ class _PurchaseFormPageState extends ConsumerState<PurchaseFormPage> {
                   bold: true,
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  // ignore: deprecated_member_use
+                StaffSheetSelectField(
                   value: form.paymentStatus,
+                  enabled: !form.busy,
+                  options: <StaffSelectOption>[
+                    StaffSelectOption(
+                      value: 'paid',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_PAID'),
+                    ),
+                    StaffSelectOption(
+                      value: 'partial',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_PARTIAL'),
+                    ),
+                    StaffSelectOption(
+                      value: 'pending',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_PENDING'),
+                    ),
+                  ],
                   decoration: InputDecoration(
                     labelText: t('STORE_FORM.PURCHASE_PAYMENT_STATUS'),
                   ),
-                  items: <DropdownMenuItem<String>>[
-                    DropdownMenuItem(
-                      value: 'paid',
-                      child: Text(t('STORE_FORM.PURCHASE_PAYMENT_PAID')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'partial',
-                      child: Text(t('STORE_FORM.PURCHASE_PAYMENT_PARTIAL')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'pending',
-                      child: Text(t('STORE_FORM.PURCHASE_PAYMENT_PENDING')),
-                    ),
-                  ],
-                  onChanged: form.busy
-                      ? null
-                      : (String? value) {
-                          if (value == null) return;
-                          ref
-                              .read(purchaseFormProvider.notifier)
-                              .setPaymentStatus(value);
-                          _syncPaidField();
-                        },
+                  title: t('STORE_FORM.PURCHASE_PAYMENT_STATUS'),
+                  headerIcon: Icons.receipt_long_outlined,
+                  onChanged: (String value) {
+                    ref
+                        .read(purchaseFormProvider.notifier)
+                        .setPaymentStatus(value);
+                    _syncPaidField();
+                  },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  // ignore: deprecated_member_use
+                StaffSheetSelectField(
                   value: form.paymentMethod,
+                  enabled: !form.busy,
+                  options: <StaffSelectOption>[
+                    StaffSelectOption(
+                      value: 'cash',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_METHOD_CASH'),
+                    ),
+                    StaffSelectOption(
+                      value: 'upi',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_METHOD_UPI'),
+                    ),
+                    StaffSelectOption(
+                      value: 'bank',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_METHOD_BANK'),
+                    ),
+                    StaffSelectOption(
+                      value: 'credit',
+                      label: t('STORE_FORM.PURCHASE_PAYMENT_METHOD_CREDIT'),
+                    ),
+                  ],
                   decoration: InputDecoration(
                     labelText: t('STORE_FORM.PURCHASE_PAYMENT_METHOD'),
                   ),
-                  items: <DropdownMenuItem<String>>[
-                    DropdownMenuItem(
-                      value: 'cash',
-                      child: Text(
-                        t('STORE_FORM.PURCHASE_PAYMENT_METHOD_CASH'),
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: 'upi',
-                      child: Text(
-                        t('STORE_FORM.PURCHASE_PAYMENT_METHOD_UPI'),
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: 'bank',
-                      child: Text(
-                        t('STORE_FORM.PURCHASE_PAYMENT_METHOD_BANK'),
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: 'credit',
-                      child: Text(
-                        t('STORE_FORM.PURCHASE_PAYMENT_METHOD_CREDIT'),
-                      ),
-                    ),
-                  ],
-                  onChanged: form.busy
-                      ? null
-                      : (String? value) {
-                          if (value == null) return;
-                          ref
-                              .read(purchaseFormProvider.notifier)
-                              .setPaymentMethod(value);
-                        },
+                  title: t('STORE_FORM.PURCHASE_PAYMENT_METHOD'),
+                  headerIcon: Icons.payments_outlined,
+                  onChanged: (String value) => ref
+                      .read(purchaseFormProvider.notifier)
+                      .setPaymentMethod(value),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -403,6 +395,7 @@ class _PurchaseFormPageState extends ConsumerState<PurchaseFormPage> {
                   ),
                 ],
               ],
+            ),
             ),
       bottomNavigationBar: SafeArea(
         child: Padding(

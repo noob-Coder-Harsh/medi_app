@@ -105,7 +105,8 @@ class BrandOperator {
 class BrandUrls {
   const BrandUrls();
 
-  /// Public site origin — same as [Env.apiBaseUrl] (falls back for tests/docs).
+  /// Public site origin from `API_BASE_URL` in `.env` / `.env.local`.
+  /// Falls back only when env is unset (tests / docs).
   String get origin {
     final base = Env.apiBaseUrl;
     if (base.isNotEmpty) return base;
@@ -115,9 +116,20 @@ class BrandUrls {
   String get website => origin;
   String get app => origin;
   String get docs => origin;
-  String get privacyPolicy => '$origin/privacy-policy';
-  String get termsOfService => '$origin/terms-and-conditions';
-  String get contact => '$origin/contact';
+
+  /// Legal / public pages — always `{API_BASE_URL}/…`.
+  String get privacyPolicy => _page('privacy-policy');
+  String get termsOfService => _page('terms-and-conditions');
+  String get contact => _page('contact');
+
+  String _page(String path) {
+    final base = Uri.parse(origin);
+    final segments = <String>[
+      ...base.pathSegments.where((String s) => s.isNotEmpty),
+      path,
+    ];
+    return base.replace(pathSegments: segments).toString();
+  }
 }
 
 @immutable

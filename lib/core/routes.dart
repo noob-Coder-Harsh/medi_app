@@ -30,6 +30,8 @@ abstract final class Routes {
       '/staff/medicines/$storeProductId';
   static String staffMedicinesProductEdit(String storeProductId) =>
       '/staff/medicines/$storeProductId/edit';
+  static String staffMedicinesProductStock(String storeProductId) =>
+      '/staff/medicines/$storeProductId/stock';
   static const staffOrders = '/staff/orders';
   static String staffOrder(String id) => '/staff/orders/$id';
   static String staffOrderEdit(String id) => '/staff/orders/$id/edit';
@@ -52,6 +54,9 @@ abstract final class Routes {
   static const staffProfile = '/staff/profile';
   static const staffProfileEdit = '/staff/profile/edit';
   static const staffCategories = '/staff/categories';
+  static const staffCategoriesCreate = '/staff/categories/create';
+  static String staffCategoriesEdit(String categoryId) =>
+      '/staff/categories/$categoryId/edit';
   static const staffLegalPrivacy = '/staff/legal/privacy';
   static const staffLegalTerms = '/staff/legal/terms';
   static const staffLegalData = '/staff/legal/data';

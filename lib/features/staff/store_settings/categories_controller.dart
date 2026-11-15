@@ -140,7 +140,21 @@ class CategoriesSettingsController extends Notifier<CategoriesSettingsState> {
     }
   }
 
-  Future<String?> createCustom(String name) async {
+  StaffCategory? findById(String categoryId) {
+    for (final category in state.selected) {
+      if (category.id == categoryId) return category;
+    }
+    for (final category in state.available) {
+      if (category.id == categoryId) return category;
+    }
+    return null;
+  }
+
+  Future<String?> createCustom({
+    required String name,
+    String? slug,
+    int? sortOrder,
+  }) async {
     final token = ref.read(staffSessionProvider).session?.accessToken;
     if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
     final trimmed = name.trim();
@@ -150,6 +164,8 @@ class CategoriesSettingsController extends Notifier<CategoriesSettingsState> {
       await ref.read(staffWriteApiProvider).createCategory(
             accessToken: token,
             name: trimmed,
+            slug: slug?.trim().isEmpty == true ? null : slug?.trim(),
+            sortOrder: sortOrder,
           );
       state = state.copyWith(busy: false);
       await refresh();
@@ -160,17 +176,24 @@ class CategoriesSettingsController extends Notifier<CategoriesSettingsState> {
     }
   }
 
-  Future<String?> renameCustom(String categoryId, String name) async {
+  Future<String?> updateCustom({
+    required String categoryId,
+    String? name,
+    bool? isActive,
+    int? sortOrder,
+  }) async {
     final token = ref.read(staffSessionProvider).session?.accessToken;
     if (token == null || token.isEmpty) return 'AUTH_SUPABASE_MISSING';
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return 'STORE_FORM.CATEGORY_NAME';
+    final trimmed = name?.trim();
+    if (trimmed != null && trimmed.isEmpty) return 'STORE_FORM.CATEGORY_NAME';
     state = state.copyWith(busy: true, clearError: true);
     try {
       await ref.read(staffWriteApiProvider).updateCategory(
             accessToken: token,
             categoryId: categoryId,
             name: trimmed,
+            isActive: isActive,
+            sortOrder: sortOrder,
           );
       state = state.copyWith(busy: false);
       await refresh();

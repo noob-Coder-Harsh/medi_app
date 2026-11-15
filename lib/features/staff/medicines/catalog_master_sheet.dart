@@ -6,6 +6,7 @@ import '../../../core/i18n.dart';
 import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/catalog_product.dart';
+import '../ui/staff_ui.dart';
 import 'medicines_controller.dart';
 
 Future<bool> showCatalogMasterSheet(BuildContext context) async {
@@ -127,36 +128,14 @@ class _CatalogMasterSheetState extends ConsumerState<CatalogMasterSheet> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: TextField(
+                child: StaffSearchField(
                   controller: _search,
-                  textInputAction: TextInputAction.search,
+                  hintText: t('STORE_FORM.CATALOG_SEARCH_PLACEHOLDER'),
+                  showLoading:
+                      state.loading && _search.text.trim().isNotEmpty,
                   onChanged: (String value) {
                     ref.read(medicinesProvider.notifier).setQuery(value);
                   },
-                  decoration: InputDecoration(
-                    hintText: t('STORE_FORM.CATALOG_SEARCH_PLACEHOLDER'),
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: state.loading
-                        ? const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : (_search.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  _search.clear();
-                                  ref
-                                      .read(medicinesProvider.notifier)
-                                      .setQuery('');
-                                },
-                                icon: const Icon(Icons.close),
-                              )),
-                  ),
                 ),
               ),
               if (state.error != null)

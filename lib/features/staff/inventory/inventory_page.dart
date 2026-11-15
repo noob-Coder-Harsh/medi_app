@@ -8,6 +8,7 @@ import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/listing.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'inventory_controller.dart';
 
 class InventoryPage extends ConsumerStatefulWidget {
@@ -46,40 +47,18 @@ class _InventoryPageState extends ConsumerState<InventoryPage> {
           ),
         ],
       ),
-      body: Column(
+      body: UnfocusOnTap(
+        child: Column(
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
+            child: StaffSearchField(
               controller: _search,
-              textInputAction: TextInputAction.search,
+              hintText: t('STORE_FORM.SEARCH_PRODUCTS'),
+              showLoading: state.loading && _search.text.trim().isNotEmpty,
               onChanged: (String value) {
                 ref.read(inventoryListProvider.notifier).setQuery(value);
               },
-              decoration: InputDecoration(
-                hintText: t('STORE_FORM.SEARCH_PRODUCTS'),
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: state.loading
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : (_search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              _search.clear();
-                              ref
-                                  .read(inventoryListProvider.notifier)
-                                  .setQuery('');
-                            },
-                            icon: const Icon(Icons.close),
-                          )),
-              ),
             ),
           ),
           SingleChildScrollView(
@@ -146,6 +125,7 @@ class _InventoryPageState extends ConsumerState<InventoryPage> {
           Expanded(child: _body(state)),
         ],
       ),
+      ),
     );
   }
 
@@ -186,6 +166,7 @@ class _InventoryPageState extends ConsumerState<InventoryPage> {
           final item = state.items[index];
           return _InventoryTile(
             item: item,
+            query: state.query,
             onTap: () => context.go(Routes.staffInventoryProduct(item.id)),
           );
         },
@@ -216,10 +197,15 @@ class _FilterChip extends StatelessWidget {
 }
 
 class _InventoryTile extends StatelessWidget {
-  const _InventoryTile({required this.item, required this.onTap});
+  const _InventoryTile({
+    required this.item,
+    required this.onTap,
+    this.query,
+  });
 
   final ListingCard item;
   final VoidCallback onTap;
+  final String? query;
 
   @override
   Widget build(BuildContext context) {
@@ -245,8 +231,9 @@ class _InventoryTile extends StatelessWidget {
                     Row(
                       children: <Widget>[
                         Expanded(
-                          child: Text(
+                          child: HighlightedText(
                             item.name,
+                            query: query,
                             style: theme.textTheme.titleMedium,
                           ),
                         ),

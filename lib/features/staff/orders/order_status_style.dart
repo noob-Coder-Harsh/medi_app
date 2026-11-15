@@ -17,6 +17,7 @@ Color orderStatusAccent(String status) {
     case 'out_for_delivery':
       return const Color(0xFF0891B2);
     case 'delivered':
+    case 'completed':
       return Brand.themeColor;
     case 'cancelled':
       return AppTheme.error;
@@ -42,6 +43,7 @@ Color orderStatusWash(String status) {
     case 'out_for_delivery':
       return const Color(0xFFECFEFF);
     case 'delivered':
+    case 'completed':
       return const Color(0xFFEDF8F5);
     case 'cancelled':
       return const Color(0xFFFEF2F2);
@@ -71,6 +73,7 @@ IconData orderStatusIcon(String status) {
     case 'out_for_delivery':
       return Icons.delivery_dining_outlined;
     case 'delivered':
+    case 'completed':
       return Icons.check_circle_outline_rounded;
     case 'cancelled':
       return Icons.cancel_outlined;

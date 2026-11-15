@@ -1214,14 +1214,14 @@ class _Thumb extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: ColoredBox(
-        color: Brand.themeBackground,
+        color: Colors.white,
         child: SizedBox(
           width: size,
           height: size,
           child: url != null && url!.isNotEmpty
               ? CachedNetworkImage(
                   imageUrl: url!,
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain,
                   errorWidget:
                       (BuildContext context, String url, Object error) {
                     return _fallback();

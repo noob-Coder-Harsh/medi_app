@@ -10,6 +10,7 @@ import '../../../core/theme.dart';
 import '../../../data/models/purchase.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
+import '../ui/staff_ui.dart';
 import 'purchases_controller.dart';
 
 class PurchasesPage extends ConsumerStatefulWidget {
@@ -53,30 +54,18 @@ class _PurchasesPageState extends ConsumerState<PurchasesPage> {
         icon: const Icon(Icons.add),
         label: Text(t('STORE_FORM.ADD_PURCHASE')),
       ),
-      body: Column(
+      body: UnfocusOnTap(
+        child: Column(
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
+            child: StaffSearchField(
               controller: _search,
-              textInputAction: TextInputAction.search,
+              hintText: t('STORE_FORM.SEARCH_PURCHASES'),
+              showLoading: state.loading && _search.text.trim().isNotEmpty,
               onChanged: (String value) {
                 ref.read(purchasesListProvider.notifier).setQuery(value);
               },
-              decoration: InputDecoration(
-                hintText: t('STORE_FORM.SEARCH_PURCHASES'),
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: state.loading
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : null,
-              ),
             ),
           ),
           if (state.error != null)
@@ -91,6 +80,7 @@ class _PurchasesPageState extends ConsumerState<PurchasesPage> {
             ),
           Expanded(child: _body(state, theme)),
         ],
+      ),
       ),
     );
   }
@@ -117,6 +107,7 @@ class _PurchasesPageState extends ConsumerState<PurchasesPage> {
         final item = state.items[index];
         return _PurchaseTile(
           item: item,
+          query: state.query,
           onTap: () => context.push(Routes.staffPurchase(item.id)),
         );
       },
@@ -125,10 +116,15 @@ class _PurchasesPageState extends ConsumerState<PurchasesPage> {
 }
 
 class _PurchaseTile extends StatelessWidget {
-  const _PurchaseTile({required this.item, required this.onTap});
+  const _PurchaseTile({
+    required this.item,
+    required this.onTap,
+    this.query,
+  });
 
   final PurchaseListItem item;
   final VoidCallback onTap;
+  final String? query;
 
   @override
   Widget build(BuildContext context) {
@@ -155,10 +151,15 @@ class _PurchaseTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(item.invoiceNumber, style: theme.textTheme.titleMedium),
+                    HighlightedText(
+                      item.invoiceNumber,
+                      query: query,
+                      style: theme.textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 2),
-                    Text(
+                    HighlightedText(
                       '${item.supplierName} · ${item.invoiceDate}',
+                      query: query,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface
                             .withValues(alpha: 0.65),

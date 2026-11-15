@@ -7,10 +7,16 @@ import '../../../data/models/staff_books.dart';
 import '../../../data/staff_api_client.dart';
 import '../auth/staff_session.dart';
 
+enum CustomerDueFilter { all, due, clear }
+
+enum CustomerSort { highestDue, lowestDue, nameAsc, recent }
+
 class CustomersState {
   const CustomersState({
     this.query = '',
     this.items = const <StaffCustomer>[],
+    this.filter = CustomerDueFilter.all,
+    this.sort = CustomerSort.highestDue,
     this.loading = false,
     this.busy = false,
     this.error,
@@ -18,13 +24,72 @@ class CustomersState {
 
   final String query;
   final List<StaffCustomer> items;
+  final CustomerDueFilter filter;
+  final CustomerSort sort;
   final bool loading;
   final bool busy;
   final String? error;
 
+  int get totalCount => items.length;
+
+  int get dueCount =>
+      items.where((StaffCustomer c) => c.currentBalance > 0).length;
+
+  int get clearCount => totalCount - dueCount;
+
+  List<StaffCustomer> get visibleItems {
+    Iterable<StaffCustomer> list = items;
+    switch (filter) {
+      case CustomerDueFilter.all:
+        break;
+      case CustomerDueFilter.due:
+        list = list.where((StaffCustomer c) => c.currentBalance > 0);
+      case CustomerDueFilter.clear:
+        list = list.where((StaffCustomer c) => c.currentBalance <= 0);
+    }
+    final out = list.toList();
+    switch (sort) {
+      case CustomerSort.highestDue:
+        out.sort((StaffCustomer a, StaffCustomer b) {
+          final byDue = b.currentBalance.compareTo(a.currentBalance);
+          if (byDue != 0) return byDue;
+          return a.displayName
+              .toLowerCase()
+              .compareTo(b.displayName.toLowerCase());
+        });
+      case CustomerSort.lowestDue:
+        out.sort((StaffCustomer a, StaffCustomer b) {
+          final byDue = a.currentBalance.compareTo(b.currentBalance);
+          if (byDue != 0) return byDue;
+          return a.displayName
+              .toLowerCase()
+              .compareTo(b.displayName.toLowerCase());
+        });
+      case CustomerSort.nameAsc:
+        out.sort(
+          (StaffCustomer a, StaffCustomer b) => a.displayName
+              .toLowerCase()
+              .compareTo(b.displayName.toLowerCase()),
+        );
+      case CustomerSort.recent:
+        out.sort((StaffCustomer a, StaffCustomer b) {
+          final aAt = a.lastOrderAt ?? '';
+          final bAt = b.lastOrderAt ?? '';
+          final byDate = bAt.compareTo(aAt);
+          if (byDate != 0) return byDate;
+          return a.displayName
+              .toLowerCase()
+              .compareTo(b.displayName.toLowerCase());
+        });
+    }
+    return out;
+  }
+
   CustomersState copyWith({
     String? query,
     List<StaffCustomer>? items,
+    CustomerDueFilter? filter,
+    CustomerSort? sort,
     bool? loading,
     bool? busy,
     String? error,
@@ -33,6 +98,8 @@ class CustomersState {
     return CustomersState(
       query: query ?? this.query,
       items: items ?? this.items,
+      filter: filter ?? this.filter,
+      sort: sort ?? this.sort,
       loading: loading ?? this.loading,
       busy: busy ?? this.busy,
       error: clearError ? null : (error ?? this.error),
@@ -60,6 +127,16 @@ class CustomersController extends Notifier<CustomersState> {
     _debounce = Timer(const Duration(milliseconds: 280), () {
       unawaited(refresh());
     });
+  }
+
+  void setFilter(CustomerDueFilter filter) {
+    if (state.filter == filter) return;
+    state = state.copyWith(filter: filter, clearError: true);
+  }
+
+  void setSort(CustomerSort sort) {
+    if (state.sort == sort) return;
+    state = state.copyWith(sort: sort, clearError: true);
   }
 
   Future<void> refresh() async {

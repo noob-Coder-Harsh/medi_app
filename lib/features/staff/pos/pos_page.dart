@@ -9,6 +9,7 @@ import '../../../core/i18n.dart';
 import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'pos_cart_controller.dart';
 import 'pos_catalog_controller.dart';
 import 'pos_catalog_filter.dart';
@@ -59,6 +60,45 @@ class _PosPageState extends ConsumerState<PosPage> {
     };
   }
 
+  String _filterKey(PosCatalogFilter filter) {
+    return switch (filter) {
+      PosFilterAll() => 'all',
+      PosFilterRx() => 'rx',
+      PosFilterOtc() => 'otc',
+      PosFilterCategory(:final name) => 'cat:$name',
+    };
+  }
+
+  PosCatalogFilter _filterFromKey(String key) {
+    if (key == 'rx') return PosCatalogFilter.rx;
+    if (key == 'otc') return PosCatalogFilter.otc;
+    if (key.startsWith('cat:')) {
+      return PosCatalogFilter.category(key.substring(4));
+    }
+    return PosCatalogFilter.all;
+  }
+
+  Future<void> _pickFilter(List<PosCatalogFilter> filterOptions) async {
+    final current = filterOptions.contains(_filter)
+        ? _filter
+        : PosCatalogFilter.all;
+    final picked = await showStaffOptionSheet(
+      context: context,
+      title: t('STORE_FORM.POS_TITLE'),
+      headerIcon: Icons.filter_list_rounded,
+      selected: _filterKey(current),
+      options: [
+        for (final option in filterOptions)
+          StaffSelectOption(
+            value: _filterKey(option),
+            label: _filterLabel(option),
+          ),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _filter = _filterFromKey(picked));
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(localeProvider);
@@ -75,13 +115,17 @@ class _PosPageState extends ConsumerState<PosPage> {
       PosCatalogFilter.otc,
       for (final name in categoryNames) PosCatalogFilter.category(name),
     ];
+    final activeFilter = filterOptions.contains(_filter)
+        ? _filter
+        : PosCatalogFilter.all;
 
     return Scaffold(
       appBar: StaffAppBar(
         title: t('STORE_FORM.POS_TITLE'),
         actions: const <Widget>[PosRecentSalesButton()],
       ),
-      body: Stack(
+      body: UnfocusOnTap(
+        child: Stack(
         children: <Widget>[
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -91,77 +135,42 @@ class _PosPageState extends ConsumerState<PosPage> {
                 child: Row(
                   children: <Widget>[
                     Expanded(
-                      child: TextField(
+                      child: StaffSearchField(
                         controller: _search,
-                        textInputAction: TextInputAction.search,
+                        hintText: t('STORE_FORM.POS_SEARCH_PLACEHOLDER'),
+                        showLoading: catalog.loading &&
+                            _search.text.trim().isNotEmpty,
                         onChanged: (String value) {
                           ref.read(posCatalogProvider.notifier).setQuery(value);
                           setState(() {});
                         },
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: t('STORE_FORM.POS_SEARCH_PLACEHOLDER'),
-                          prefixIcon: const Icon(Icons.search, size: 20),
-                          suffixIcon: catalog.loading
-                              ? const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                )
-                              : (_search.text.isEmpty
-                                    ? null
-                                    : IconButton(
-                                        onPressed: () {
-                                          _search.clear();
-                                          ref
-                                              .read(posCatalogProvider.notifier)
-                                              .setQuery('');
-                                          setState(() {});
-                                        },
-                                        icon: const Icon(Icons.close, size: 18),
-                                      )),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     SizedBox(
                       width: 118,
-                      child: DropdownButtonFormField<PosCatalogFilter>(
-                        value: filterOptions.contains(_filter)
-                            ? _filter
-                            : PosCatalogFilter.all,
-                        isDense: true,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 10,
+                      child: InkWell(
+                        borderRadius: AppTheme.borderRadius,
+                        onTap: () => _pickFilter(filterOptions),
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            suffixIcon: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: 20,
+                            ),
+                          ),
+                          child: Text(
+                            _filterLabel(activeFilter),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium,
                           ),
                         ),
-                        items: [
-                          for (final option in filterOptions)
-                            DropdownMenuItem<PosCatalogFilter>(
-                              value: option,
-                              child: Text(
-                                _filterLabel(option),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                        onChanged: (PosCatalogFilter? next) {
-                          if (next == null) return;
-                          setState(() => _filter = next);
-                        },
                       ),
                     ),
                   ],
@@ -182,6 +191,7 @@ class _PosPageState extends ConsumerState<PosPage> {
                   catalog: catalog,
                   products: visible,
                   cart: cart,
+                  query: _search.text,
                   bottomPad: hasCart ? 96 : 12,
                 ),
               ),
@@ -207,6 +217,7 @@ class _PosPageState extends ConsumerState<PosPage> {
             ),
         ],
       ),
+      ),
     );
   }
 
@@ -214,6 +225,7 @@ class _PosPageState extends ConsumerState<PosPage> {
     required PosCatalogState catalog,
     required List<PosProduct> products,
     required PosCartController cart,
+    required String query,
     required double bottomPad,
   }) {
     if (catalog.loading && catalog.products.isEmpty) {
@@ -254,6 +266,7 @@ class _PosPageState extends ConsumerState<PosPage> {
             final product = products[index];
             return PosProductTile(
               product: product,
+              query: query,
               quantityInCart: cart.quantityOf(product.storeProductId),
               onAdd: () => _openQty(product),
             );

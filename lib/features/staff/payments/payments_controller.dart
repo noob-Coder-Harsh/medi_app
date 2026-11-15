@@ -7,12 +7,15 @@ import '../../../data/models/staff_books.dart';
 import '../../../data/staff_api_client.dart';
 import '../auth/staff_session.dart';
 
+enum PaymentDirectionFilter { all, inflow, outflow }
+
 class PaymentsState {
   const PaymentsState({
     this.query = '',
     this.items = const <StaffPayment>[],
     this.customers = const <StaffCustomer>[],
     this.suppliers = const <StaffSupplier>[],
+    this.direction = PaymentDirectionFilter.all,
     this.loading = false,
     this.busy = false,
     this.error,
@@ -22,15 +25,52 @@ class PaymentsState {
   final List<StaffPayment> items;
   final List<StaffCustomer> customers;
   final List<StaffSupplier> suppliers;
+  final PaymentDirectionFilter direction;
   final bool loading;
   final bool busy;
   final String? error;
+
+  int get totalCount => items.length;
+
+  int get inflowCount =>
+      items.where((StaffPayment p) => p.paymentDirection != 'outflow').length;
+
+  int get outflowCount =>
+      items.where((StaffPayment p) => p.paymentDirection == 'outflow').length;
+
+  double get inflowTotal => items
+      .where((StaffPayment p) => p.paymentDirection != 'outflow')
+      .fold<double>(0, (double sum, StaffPayment p) => sum + p.amount);
+
+  double get outflowTotal => items
+      .where((StaffPayment p) => p.paymentDirection == 'outflow')
+      .fold<double>(0, (double sum, StaffPayment p) => sum + p.amount);
+
+  int get pendingCount => items
+      .where((StaffPayment p) => p.status.toLowerCase() == 'pending')
+      .length;
+
+  List<StaffPayment> get visibleItems {
+    switch (direction) {
+      case PaymentDirectionFilter.all:
+        return items;
+      case PaymentDirectionFilter.inflow:
+        return items
+            .where((StaffPayment p) => p.paymentDirection != 'outflow')
+            .toList(growable: false);
+      case PaymentDirectionFilter.outflow:
+        return items
+            .where((StaffPayment p) => p.paymentDirection == 'outflow')
+            .toList(growable: false);
+    }
+  }
 
   PaymentsState copyWith({
     String? query,
     List<StaffPayment>? items,
     List<StaffCustomer>? customers,
     List<StaffSupplier>? suppliers,
+    PaymentDirectionFilter? direction,
     bool? loading,
     bool? busy,
     String? error,
@@ -41,6 +81,7 @@ class PaymentsState {
       items: items ?? this.items,
       customers: customers ?? this.customers,
       suppliers: suppliers ?? this.suppliers,
+      direction: direction ?? this.direction,
       loading: loading ?? this.loading,
       busy: busy ?? this.busy,
       error: clearError ? null : (error ?? this.error),
@@ -68,6 +109,11 @@ class PaymentsController extends Notifier<PaymentsState> {
     _debounce = Timer(const Duration(milliseconds: 280), () {
       unawaited(refresh());
     });
+  }
+
+  void setDirection(PaymentDirectionFilter direction) {
+    if (state.direction == direction) return;
+    state = state.copyWith(direction: direction, clearError: true);
   }
 
   Future<void> refresh() async {

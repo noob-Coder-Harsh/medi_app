@@ -62,6 +62,7 @@ flutter:
     - assets/images/default_staff_avatar.png
     - assets/images/default_store.png
     - assets/images/app_logo.png
+    - assets/images/category/
     - .env.example
     - .env.local
 

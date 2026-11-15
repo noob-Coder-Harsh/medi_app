@@ -37,13 +37,14 @@ export const BRAND = {
     WEBSITE: "https://im7.in",
   },
 
+  // Flutter resolves these from API_BASE_URL in .env / .env.local (see lib/core/brand.dart).
   URLs: {
-    WEBSITE: "https://med.im7.in",
-    APP: "https://med.im7.in",
-    DOCS: "https://med.im7.in",
-    PRIVACY_POLICY: "https://med.im7.in/privacy-policy",
-    TERMS_OF_SERVICE: "https://med.im7.in/terms-and-conditions",
-    CONTACT: "https://med.im7.in/contact",
+    WEBSITE: "https://medsahayta-iota.vercel.app",
+    APP: "https://medsahayta-iota.vercel.app",
+    DOCS: "https://medsahayta-iota.vercel.app",
+    PRIVACY_POLICY: "https://medsahayta-iota.vercel.app/privacy-policy",
+    TERMS_OF_SERVICE: "https://medsahayta-iota.vercel.app/terms-and-conditions",
+    CONTACT: "https://medsahayta-iota.vercel.app/contact",
   },
 
   SOCIAL: {

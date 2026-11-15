@@ -7,6 +7,7 @@ import '../../../core/theme.dart';
 import '../../../data/models/staff_books.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
+import '../ui/staff_ui.dart';
 import 'suppliers_controller.dart';
 
 class SuppliersPage extends ConsumerStatefulWidget {
@@ -58,18 +59,19 @@ class _SuppliersPageState extends ConsumerState<SuppliersPage> {
         icon: const Icon(Icons.add),
         label: Text(t('STORE_FORM.ADD_SUPPLIER')),
       ),
-      body: Column(
+      body: UnfocusOnTap(
+        child: Column(
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
+            child: StaffSearchField(
               controller: _search,
-              onChanged: (String value) =>
-                  ref.read(suppliersProvider.notifier).setQuery(value),
-              decoration: InputDecoration(
-                hintText: t('STORE_FORM.SEARCH_SUPPLIERS'),
-                prefixIcon: const Icon(Icons.search),
-              ),
+              hintText: t('STORE_FORM.SEARCH_SUPPLIERS'),
+              showLoading:
+                  state.loading && _search.text.trim().isNotEmpty,
+              onChanged: (String value) {
+                ref.read(suppliersProvider.notifier).setQuery(value);
+              },
             ),
           ),
           if (state.error != null)
@@ -103,7 +105,10 @@ class _SuppliersPageState extends ConsumerState<SuppliersPage> {
                               ),
                             ),
                             child: ListTile(
-                              title: Text(item.name),
+                              title: HighlightedText(
+                                item.name,
+                                query: state.query,
+                              ),
                               subtitle: Text(
                                 '${item.phone ?? t('STORE_FORM.NOT_PROVIDED')} · '
                                 '${t('STORE_FORM.SUPPLIER_CURRENT_BALANCE')} ${Format.rupee(item.currentBalance)}'
@@ -116,6 +121,7 @@ class _SuppliersPageState extends ConsumerState<SuppliersPage> {
                       ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -237,7 +243,8 @@ class _SupplierEditorState extends ConsumerState<_SupplierEditor> {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
     final existing = widget.existing;
 
-    return Padding(
+    return UnfocusOnTap(
+      child: Padding(
       padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottom),
       child: SingleChildScrollView(
         child: Column(
@@ -330,32 +337,29 @@ class _SupplierEditorState extends ConsumerState<_SupplierEditor> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  // ignore: deprecated_member_use
+                StaffSheetSelectField(
                   value: _method,
+                  enabled: !busy,
+                  options: <StaffSelectOption>[
+                    StaffSelectOption(
+                      value: 'cash',
+                      label: t('STORE_FORM.PAYMENT_METHOD_CASH'),
+                    ),
+                    StaffSelectOption(
+                      value: 'upi',
+                      label: t('STORE_FORM.PAYMENT_METHOD_UPI'),
+                    ),
+                    StaffSelectOption(
+                      value: 'bank_transfer',
+                      label: t('STORE_FORM.PAYMENT_METHOD_BANK'),
+                    ),
+                  ],
                   decoration: InputDecoration(
                     labelText: t('STORE_FORM.PAYMENT_METHOD'),
                   ),
-                  items: <DropdownMenuItem<String>>[
-                    DropdownMenuItem(
-                      value: 'cash',
-                      child: Text(t('STORE_FORM.PAYMENT_METHOD_CASH')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'upi',
-                      child: Text(t('STORE_FORM.PAYMENT_METHOD_UPI')),
-                    ),
-                    DropdownMenuItem(
-                      value: 'bank_transfer',
-                      child: Text(t('STORE_FORM.PAYMENT_METHOD_BANK')),
-                    ),
-                  ],
-                  onChanged: busy
-                      ? null
-                      : (String? value) {
-                          if (value == null) return;
-                          setState(() => _method = value);
-                        },
+                  title: t('STORE_FORM.PAYMENT_METHOD'),
+                  headerIcon: Icons.payments_outlined,
+                  onChanged: (String value) => setState(() => _method = value),
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonal(
@@ -376,6 +380,7 @@ class _SupplierEditorState extends ConsumerState<_SupplierEditor> {
           ],
         ),
       ),
+    ),
     );
   }
 

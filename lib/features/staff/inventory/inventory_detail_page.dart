@@ -9,6 +9,7 @@ import '../../../core/theme.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/listing.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'add_batch_sheet.dart';
 import 'inventory_detail_controller.dart';
 
@@ -287,30 +288,34 @@ class _ListingEditorState extends ConsumerState<_ListingEditor> {
                   ? null
                   : (bool value) => setState(() => _active = value),
             ),
-            DropdownButtonFormField<String>(
-              // ignore: deprecated_member_use
+            StaffSheetSelectField(
               value: _salePolicy,
+              enabled: !widget.busy,
+              options: <StaffSelectOption>[
+                StaffSelectOption(
+                  value: 'inherit',
+                  label: t('STORE_FORM.SALE_POLICY_INHERIT'),
+                ),
+                StaffSelectOption(
+                  value: 'loose_allowed',
+                  label: t('STORE_FORM.SALE_POLICY_LOOSE'),
+                ),
+                StaffSelectOption(
+                  value: 'pack_only',
+                  label: t('STORE_FORM.SALE_POLICY_PACK'),
+                ),
+                StaffSelectOption(
+                  value: 'whole_only',
+                  label: t('STORE_FORM.SALE_POLICY_WHOLE'),
+                ),
+              ],
               decoration: InputDecoration(
                 labelText: t('STORE_FORM.SALE_POLICY'),
               ),
-              items: const <DropdownMenuItem<String>>[
-                DropdownMenuItem(value: 'inherit', child: Text('Inherit')),
-                DropdownMenuItem(
-                  value: 'loose_allowed',
-                  child: Text('Loose allowed'),
-                ),
-                DropdownMenuItem(value: 'pack_only', child: Text('Pack only')),
-                DropdownMenuItem(
-                  value: 'whole_only',
-                  child: Text('Whole only'),
-                ),
-              ],
-              onChanged: widget.busy
-                  ? null
-                  : (String? value) {
-                      if (value == null) return;
-                      setState(() => _salePolicy = value);
-                    },
+              title: t('STORE_FORM.SALE_POLICY'),
+              headerIcon: Icons.shopping_bag_outlined,
+              onChanged: (String value) =>
+                  setState(() => _salePolicy = value),
             ),
             const SizedBox(height: 12),
             TextFormField(

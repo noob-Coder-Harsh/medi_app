@@ -163,6 +163,7 @@ abstract class StaffWriteApi {
     required String accessToken,
     required String name,
     String? slug,
+    int? sortOrder,
   });
 
   Future<StaffCategory> updateCategory({
@@ -170,6 +171,7 @@ abstract class StaffWriteApi {
     required String categoryId,
     String? name,
     bool? isActive,
+    int? sortOrder,
   });
 }
 
@@ -749,6 +751,7 @@ class DioStaffWriteApi implements StaffWriteApi {
     required String accessToken,
     required String name,
     String? slug,
+    int? sortOrder,
   }) async {
     _requireBase();
     try {
@@ -757,10 +760,20 @@ class DioStaffWriteApi implements StaffWriteApi {
         data: <String, Object?>{
           'name': name,
           if (slug != null && slug.isNotEmpty) 'slug': slug,
+          if (sortOrder != null) 'sort_order': sortOrder,
         },
         options: _auth(accessToken),
       );
-      return StaffCategory.fromApi(_map(response));
+      var created = StaffCategory.fromApi(_map(response));
+      // STEP 28 documents sort_order on PATCH; set it after create when needed.
+      if (sortOrder != null && created.sortOrder.round() != sortOrder) {
+        created = await updateCategory(
+          accessToken: accessToken,
+          categoryId: created.id,
+          sortOrder: sortOrder,
+        );
+      }
+      return created;
     } on DioException catch (error) {
       _throwDio(error);
     }
@@ -772,6 +785,7 @@ class DioStaffWriteApi implements StaffWriteApi {
     required String categoryId,
     String? name,
     bool? isActive,
+    int? sortOrder,
   }) async {
     _requireBase();
     try {
@@ -780,6 +794,7 @@ class DioStaffWriteApi implements StaffWriteApi {
         data: <String, Object?>{
           if (name != null) 'name': name,
           if (isActive != null) 'is_active': isActive,
+          if (sortOrder != null) 'sort_order': sortOrder,
         },
         options: _auth(accessToken),
       );

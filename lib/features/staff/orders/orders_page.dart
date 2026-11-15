@@ -11,6 +11,7 @@ import '../../../core/routes.dart';
 import '../../../core/theme.dart';
 import '../../../data/models/staff_order.dart';
 import '../shell/staff_app_bar.dart';
+import '../ui/staff_ui.dart';
 import 'order_status_style.dart';
 import 'orders_controller.dart';
 
@@ -73,71 +74,24 @@ class _StaffOrdersPageState extends ConsumerState<StaffOrdersPage> {
           ),
         ],
       ),
-      body: Column(
+      body: UnfocusOnTap(
+        child: Column(
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
             child: Row(
               children: <Widget>[
                 Expanded(
-                  child: SizedBox(
+                  child: StaffSearchField(
+                    controller: _search,
                     height: 44,
-                    child: TextField(
-                      controller: _search,
-                      textInputAction: TextInputAction.search,
-                      style: theme.textTheme.bodyMedium,
-                      onChanged: (String value) {
-                        ref.read(ordersListProvider.notifier).setQuery(value);
-                      },
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: Colors.white,
-                        hintText: t('STORE_FORM.SEARCH_ORDERS'),
-                        hintStyle: theme.textTheme.bodySmall?.copyWith(
-                          color: AppTheme.ink.withValues(alpha: 0.45),
-                        ),
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          size: 20,
-                          color: AppTheme.ink.withValues(alpha: 0.55),
-                        ),
-                        suffixIcon: state.loading
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
-                            : null,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: AppTheme.hairlineColor,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: AppTheme.hairlineColor,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Brand.themeColor,
-                          ),
-                        ),
-                      ),
-                    ),
+                    fillColor: Colors.white,
+                    hintText: t('STORE_FORM.SEARCH_ORDERS'),
+                    showLoading:
+                        state.loading && _search.text.trim().isNotEmpty,
+                    onChanged: (String value) {
+                      ref.read(ordersListProvider.notifier).setQuery(value);
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -212,6 +166,7 @@ class _StaffOrdersPageState extends ConsumerState<StaffOrdersPage> {
           Expanded(child: _body(state)),
         ],
       ),
+      ),
     );
   }
 
@@ -241,6 +196,7 @@ class _StaffOrdersPageState extends ConsumerState<StaffOrdersPage> {
         final item = state.items[index];
         return _OrderCard(
           item: item,
+          query: state.query,
           onTap: () => context.push(Routes.staffOrder(item.id)),
         );
       },
@@ -391,10 +347,15 @@ class _SourceRailChip extends StatelessWidget {
 }
 
 class _OrderCard extends StatelessWidget {
-  const _OrderCard({required this.item, required this.onTap});
+  const _OrderCard({
+    required this.item,
+    required this.onTap,
+    this.query,
+  });
 
   final StaffOrderListItem item;
   final VoidCallback onTap;
+  final String? query;
 
   String _itemsLabel() {
     final count = item.itemCount;
@@ -459,8 +420,9 @@ class _OrderCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: <Widget>[
-                            Text(
+                            HighlightedText(
                               '#${item.orderNumber}',
+                              query: query,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleSmall?.copyWith(
@@ -470,8 +432,9 @@ class _OrderCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text(
+                            HighlightedText(
                               phone,
+                              query: query,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall?.copyWith(

@@ -7,6 +7,7 @@ import '../../../core/theme.dart';
 import '../../../data/models/staff_order.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
+import '../ui/staff_ui.dart';
 import 'orders_controller.dart';
 
 /// Full-screen order edit (status + notes) outside bottom bar.
@@ -91,7 +92,8 @@ class _StaffOrderEditPageState extends ConsumerState<StaffOrderEditPage> {
           ? const Center(child: CircularProgressIndicator())
           : detail == null
               ? Center(child: Text(state.error ?? t('ERROR_GENERIC')))
-              : ListView(
+              : UnfocusOnTap(
+                  child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                   children: <Widget>[
                     Text(
@@ -132,29 +134,27 @@ class _StaffOrderEditPageState extends ConsumerState<StaffOrderEditPage> {
                         ),
                       )
                     else
-                      DropdownButtonFormField<String>(
-                        // ignore: deprecated_member_use
+                      StaffSheetSelectField(
                         value: _selectedStatus != null &&
                                 detail.nextStatuses.contains(_selectedStatus)
                             ? _selectedStatus
                             : detail.nextStatuses.first,
-                        decoration: InputDecoration(
-                          labelText: t('STORE_FORM.ORDER_STATUS'),
-                        ),
-                        items: detail.nextStatuses
+                        enabled: !state.busy,
+                        options: detail.nextStatuses
                             .map(
-                              (String status) => DropdownMenuItem<String>(
+                              (String status) => StaffSelectOption(
                                 value: status,
-                                child: Text(_labelStatus(status)),
+                                label: _labelStatus(status),
                               ),
                             )
                             .toList(growable: false),
-                        onChanged: state.busy
-                            ? null
-                            : (String? value) {
-                                if (value == null) return;
-                                setState(() => _selectedStatus = value);
-                              },
+                        decoration: InputDecoration(
+                          labelText: t('STORE_FORM.ORDER_STATUS'),
+                        ),
+                        title: t('STORE_FORM.ORDER_STATUS'),
+                        headerIcon: Icons.local_shipping_outlined,
+                        onChanged: (String value) =>
+                            setState(() => _selectedStatus = value),
                       ),
                     const SizedBox(height: 16),
                     TextField(
@@ -188,6 +188,7 @@ class _StaffOrderEditPageState extends ConsumerState<StaffOrderEditPage> {
                     ),
                   ],
                 ),
+              ),
     );
   }
 }

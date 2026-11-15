@@ -757,7 +757,7 @@
     "STORE_VISIBLE": "Store visible to customers on the app"
   },
   "OWNERSHIP_TITLE": "Owned & managed by IM7 Digital",
-  "OWNERSHIP_DESCRIPTION": "MediSync is a product owned and managed by IM7 Digital. For now, the platform is hosted at med.im7.in while we continue building tools for pharmacy owners.",
+  "OWNERSHIP_DESCRIPTION": "MediSync is a product owned and managed by IM7 Digital. For now, the platform is hosted at medsahayta-iota.vercel.app while we continue building tools for pharmacy owners.",
   "OWNERSHIP_SUPPORT": "For support, email us at",
   "ERROR_GENERIC": "Something went wrong. Please try again.",
   "ERROR_UNAUTHORIZED": "You are not authorized to access this resource.",

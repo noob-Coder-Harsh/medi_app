@@ -110,6 +110,7 @@ class ReturnFormLine {
     required this.productName,
     required this.soldQty,
     required this.unitPrice,
+    this.imageUrl,
     this.selected = false,
     this.quantity = 1,
     this.condition = 'sealed',
@@ -120,6 +121,7 @@ class ReturnFormLine {
   final String productName;
   final int soldQty;
   final double unitPrice;
+  final String? imageUrl;
   bool selected;
   int quantity;
   String condition;
@@ -160,6 +162,23 @@ class ReturnFormState {
       total += line.unitPrice * line.quantity;
     }
     return total;
+  }
+
+  int get selectedItemCount {
+    var count = 0;
+    for (final line in lines) {
+      if (line.selected) count += 1;
+    }
+    return count;
+  }
+
+  int get selectedQty {
+    var qty = 0;
+    for (final line in lines) {
+      if (!line.selected) continue;
+      qty += line.quantity;
+    }
+    return qty;
   }
 
   ReturnFormState copyWith({
@@ -260,6 +279,7 @@ class ReturnFormController extends Notifier<ReturnFormState> {
               productName: item.productName,
               soldQty: item.quantity,
               unitPrice: item.unitPrice,
+              imageUrl: item.imageUrl,
               quantity: item.quantity < 1 ? 1 : item.quantity,
             ),
           )

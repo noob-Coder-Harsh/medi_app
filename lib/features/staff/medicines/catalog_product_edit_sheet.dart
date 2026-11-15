@@ -20,6 +20,7 @@ import '../auth/staff_session.dart';
 import '../inventory/inventory_detail_controller.dart';
 import '../shell/staff_app_bar.dart';
 import '../shell/staff_pop_scope.dart';
+import '../ui/staff_ui.dart';
 
 /// Full-screen product edit (outside bottom bar).
 class CatalogProductEditPage extends ConsumerWidget {
@@ -442,13 +443,17 @@ class _CatalogProductEditFormState
     String? searchHint,
     IconData? headerIcon,
   }) {
-    return _showOptionBottomSheet(
+    return showStaffOptionSheet(
       context: context,
       title: title,
       subtitle: subtitle,
       searchHint: searchHint,
       headerIcon: headerIcon,
-      options: options,
+      options: options
+          .map(
+            (o) => StaffSelectOption(value: o.value, label: o.label),
+          )
+          .toList(growable: false),
       selected: selected,
     );
   }
@@ -499,10 +504,12 @@ class _CatalogProductEditFormState
         !_imageCleared && (_imageBytes == null || _imageBytes!.isEmpty)
             ? _networkImageUrl
             : null;
+    final canEditIdentity = !_isSystem && !busy;
 
     return Form(
       key: _formKey,
-      child: Column(
+      child: UnfocusOnTap(
+        child: Column(
         children: <Widget>[
           Expanded(
             child: _loadingCategories
@@ -540,8 +547,7 @@ class _CatalogProductEditFormState
                             ),
                           ),
                         ),
-                      if (!_isSystem) ...<Widget>[
-                        _FormSection(
+                      _FormSection(
                           title: t('STORE_FORM.PRODUCT_INFO_SECTION'),
                           icon: Icons.medication_outlined,
                           initiallyExpanded: true,
@@ -551,7 +557,8 @@ class _CatalogProductEditFormState
                               _ProductImagePicker(
                                 bytes: _imageBytes,
                                 networkUrl: displayNetworkUrl,
-                                enabled: !busy && !_preparingImage,
+                                enabled:
+                                    canEditIdentity && !_preparingImage,
                                 preparing: _preparingImage,
                                 onPick: _showImageSourceSheet,
                                 onRemove: () => setState(() {
@@ -566,7 +573,7 @@ class _CatalogProductEditFormState
                                 required: true,
                                 child: TextFormField(
                                   controller: _name,
-                                  enabled: !busy,
+                                  enabled: canEditIdentity,
                                   textCapitalization: TextCapitalization.words,
                                   decoration: _deco(
                                     hint: t(
@@ -576,6 +583,7 @@ class _CatalogProductEditFormState
                                         const Icon(Icons.inventory_2_outlined),
                                   ),
                                   validator: (String? value) {
+                                    if (_isSystem) return null;
                                     final text = value?.trim() ?? '';
                                     if (text.length < 2) {
                                       return t('STORE_FORM.PRODUCT_NAME');
@@ -589,7 +597,7 @@ class _CatalogProductEditFormState
                                 label: t('STORE_FORM.GENERIC_NAME'),
                                 child: TextFormField(
                                   controller: _generic,
-                                  enabled: !busy,
+                                  enabled: canEditIdentity,
                                   textCapitalization: TextCapitalization.words,
                                   decoration: _deco(
                                     hint: t(
@@ -606,7 +614,7 @@ class _CatalogProductEditFormState
                                 label: t('STOREFRONT.PRODUCT_MANUFACTURER'),
                                 child: TextFormField(
                                   controller: _manufacturer,
-                                  enabled: !busy,
+                                  enabled: canEditIdentity,
                                   decoration: _deco(
                                     hint: t(
                                       'STORE_FORM.MANUFACTURER_PLACEHOLDER',
@@ -622,7 +630,7 @@ class _CatalogProductEditFormState
                                 required: true,
                                 child: _SheetSelectField(
                                   value: _categoryId,
-                                  enabled: !busy,
+                                  enabled: canEditIdentity,
                                   options: _categories
                                       .map(
                                         (Category c) => _SelectOption(
@@ -646,6 +654,7 @@ class _CatalogProductEditFormState
                                   onChanged: (String value) =>
                                       setState(() => _categoryId = value),
                                   validator: (String? value) {
+                                    if (_isSystem) return null;
                                     if (value == null || value.isEmpty) {
                                       return t('STORE_FORM.CATEGORIES_TITLE');
                                     }
@@ -659,7 +668,7 @@ class _CatalogProductEditFormState
                                   label: t('STORE_FORM.STRENGTH'),
                                   child: TextFormField(
                                     controller: _strength,
-                                    enabled: !busy,
+                                    enabled: canEditIdentity,
                                     decoration: _deco(
                                       hint: t('STORE_FORM.STRENGTH_PLACEHOLDER'),
                                       prefixIcon: const Icon(
@@ -672,7 +681,7 @@ class _CatalogProductEditFormState
                                   label: t('STORE_FORM.DOSAGE_FORM'),
                                   child: _SheetSelectField(
                                     value: _dosageForm,
-                                    enabled: !busy,
+                                    enabled: canEditIdentity,
                                     options: kDosageFormValues
                                         .map(
                                           (String value) => _SelectOption(
@@ -712,11 +721,11 @@ class _CatalogProductEditFormState
                                   ),
                                 ),
                                 value: _requiresRx,
-                                onChanged: busy
-                                    ? null
-                                    : (bool? value) => setState(
+                                onChanged: canEditIdentity
+                                    ? (bool? value) => setState(
                                           () => _requiresRx = value ?? false,
-                                        ),
+                                        )
+                                    : null,
                               ),
                               const SizedBox(height: 4),
                               Material(
@@ -773,8 +782,10 @@ class _CatalogProductEditFormState
                                     value: allowedPackTypes
                                             .contains(_primaryPackType)
                                         ? _primaryPackType
-                                        : allowedPackTypes.first,
-                                    enabled: !busy,
+                                        : (allowedPackTypes.isEmpty
+                                            ? _primaryPackType
+                                            : allowedPackTypes.first),
+                                    enabled: canEditIdentity,
                                     options: allowedPackTypes
                                         .map(
                                           (String value) => _SelectOption(
@@ -804,7 +815,7 @@ class _CatalogProductEditFormState
                                   label: t('STORE_FORM.PRIMARY_PACK_QUANTITY'),
                                   child: TextFormField(
                                     controller: _packQty,
-                                    enabled: !busy && qtyEditable,
+                                    enabled: canEditIdentity && qtyEditable,
                                     keyboardType: TextInputType.number,
                                     inputFormatters: <TextInputFormatter>[
                                       FilteringTextInputFormatter.digitsOnly,
@@ -817,7 +828,9 @@ class _CatalogProductEditFormState
                                       setState(() {});
                                     },
                                     validator: (String? value) {
-                                      if (!qtyEditable) return null;
+                                      if (_isSystem || !qtyEditable) {
+                                        return null;
+                                      }
                                       final parsed =
                                           int.tryParse(value?.trim() ?? '');
                                       if (parsed == null || parsed < 1) {
@@ -836,7 +849,6 @@ class _CatalogProductEditFormState
                           ),
                         ),
                         const SizedBox(height: 10),
-                      ],
                       _FormSection(
                         title: t('STORE_FORM.PRICING_SECTION'),
                         icon: Icons.currency_rupee,
@@ -911,29 +923,27 @@ class _CatalogProductEditFormState
                             const SizedBox(height: _fieldGap),
                             _LabeledField(
                               label: t('STORE_FORM.SALE_POLICY'),
-                              child: DropdownButtonFormField<String>(
-                                // ignore: deprecated_member_use
+                              child: StaffSheetSelectField(
                                 value: _salePolicy,
-                                isDense: true,
+                                enabled: !busy,
+                                options: _salePolicyValues
+                                    .map(
+                                      (String value) => StaffSelectOption(
+                                        value: value,
+                                        label: _salePolicyLabel(value),
+                                      ),
+                                    )
+                                    .toList(growable: false),
                                 decoration: _deco(
                                   prefixIcon: const Icon(
                                     Icons.shopping_bag_outlined,
                                   ),
                                 ),
-                                items: _salePolicyValues
-                                    .map(
-                                      (String value) => DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(_salePolicyLabel(value)),
-                                      ),
-                                    )
-                                    .toList(growable: false),
-                                onChanged: busy
-                                    ? null
-                                    : (String? value) {
-                                        if (value == null) return;
-                                        setState(() => _salePolicy = value);
-                                      },
+                                title: t('STORE_FORM.SALE_POLICY'),
+                                subtitle: t('STORE_FORM.SALE_POLICY_DESC'),
+                                headerIcon: Icons.shopping_bag_outlined,
+                                onChanged: (String value) =>
+                                    setState(() => _salePolicy = value),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -964,47 +974,6 @@ class _CatalogProductEditFormState
                                       setState(() => _isActive = value),
                               activeThumbColor: Brand.themeColor,
                             ),
-                            if (_isSystem) ...<Widget>[
-                              const SizedBox(height: 4),
-                              Material(
-                                color: BrandTeal.soft,
-                                borderRadius: AppTheme.borderRadius,
-                                child: SwitchListTile(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  dense: true,
-                                  secondary: Icon(
-                                    Icons.star_outline_rounded,
-                                    color: Brand.themeColor,
-                                  ),
-                                  value: _isFeatured,
-                                  onChanged: busy
-                                      ? null
-                                      : (bool value) => setState(
-                                            () => _isFeatured = value,
-                                          ),
-                                  title: Text(
-                                    t('STORE_FORM.PRODUCT_FEATURED'),
-                                    style:
-                                        theme.textTheme.bodyMedium?.copyWith(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    t('STORE_FORM.PRODUCT_FEATURED_HINT'),
-                                    style:
-                                        theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 11.5,
-                                      color: theme.colorScheme.onSurface
-                                          .withValues(alpha: 0.6),
-                                    ),
-                                  ),
-                                  activeThumbColor: Brand.themeColor,
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
@@ -1065,6 +1034,7 @@ class _CatalogProductEditFormState
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -1181,400 +1151,6 @@ class _SelectOption {
   final String label;
 }
 
-class _OptionVisual {
-  const _OptionVisual({
-    required this.icon,
-    required this.fg,
-    required this.bg,
-  });
-
-  final IconData icon;
-  final Color fg;
-  final Color bg;
-}
-
-_OptionVisual _visualForOption(String label, int index) {
-  final key = label.toLowerCase();
-  if (key.contains('tablet') || key.contains('capsule')) {
-    return const _OptionVisual(
-      icon: Icons.medication_outlined,
-      fg: Color(0xFF0F766E),
-      bg: Color(0xFFCCFBF1),
-    );
-  }
-  if (key.contains('syrup') || key.contains('liquid') || key.contains('bottle')) {
-    return const _OptionVisual(
-      icon: Icons.science_outlined,
-      fg: Color(0xFF2563EB),
-      bg: Color(0xFFDBEAFE),
-    );
-  }
-  if (key.contains('drop')) {
-    return const _OptionVisual(
-      icon: Icons.water_drop_outlined,
-      fg: Color(0xFFB45309),
-      bg: Color(0xFFFFEDD5),
-    );
-  }
-  if (key.contains('inject') || key.contains('vial') || key.contains('ampoule')) {
-    return const _OptionVisual(
-      icon: Icons.vaccines_outlined,
-      fg: Color(0xFF0F766E),
-      bg: Color(0xFFCCFBF1),
-    );
-  }
-  if (key.contains('cream') || key.contains('ointment') || key.contains('gel')) {
-    return const _OptionVisual(
-      icon: Icons.spa_outlined,
-      fg: Color(0xFF7C3AED),
-      bg: Color(0xFFEDE9FE),
-    );
-  }
-  if (key.contains('inhal') || key.contains('device')) {
-    return const _OptionVisual(
-      icon: Icons.air,
-      fg: Color(0xFF059669),
-      bg: Color(0xFFD1FAE5),
-    );
-  }
-  if (key.contains('surg') || key.contains('dress') || key.contains('bandage')) {
-    return const _OptionVisual(
-      icon: Icons.medical_services_outlined,
-      fg: Color(0xFFEA580C),
-      bg: Color(0xFFFFEDD5),
-    );
-  }
-  if (key.contains('baby') || key.contains('infant') || key.contains('paed')) {
-    return const _OptionVisual(
-      icon: Icons.child_care_outlined,
-      fg: Color(0xFFBE123C),
-      bg: Color(0xFFFFE4E6),
-    );
-  }
-  if (key.contains('strip') || key.contains('pack') || key.contains('box')) {
-    return const _OptionVisual(
-      icon: Icons.layers_outlined,
-      fg: Color(0xFF0F766E),
-      bg: Color(0xFFCCFBF1),
-    );
-  }
-  const palette = <_OptionVisual>[
-    _OptionVisual(
-      icon: Icons.category_outlined,
-      fg: Color(0xFF0F766E),
-      bg: Color(0xFFCCFBF1),
-    ),
-    _OptionVisual(
-      icon: Icons.inventory_2_outlined,
-      fg: Color(0xFF2563EB),
-      bg: Color(0xFFDBEAFE),
-    ),
-    _OptionVisual(
-      icon: Icons.local_pharmacy_outlined,
-      fg: Color(0xFF7C3AED),
-      bg: Color(0xFFEDE9FE),
-    ),
-    _OptionVisual(
-      icon: Icons.healing_outlined,
-      fg: Color(0xFFEA580C),
-      bg: Color(0xFFFFEDD5),
-    ),
-  ];
-  return palette[index % palette.length];
-}
-
-Future<String?> _showOptionBottomSheet({
-  required BuildContext context,
-  required String title,
-  required List<_SelectOption> options,
-  String? selected,
-  String? subtitle,
-  String? searchHint,
-  IconData? headerIcon,
-}) {
-  return showModalBottomSheet<String>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (BuildContext context) {
-      return _OptionPickerSheet(
-        title: title,
-        subtitle: subtitle,
-        searchHint: searchHint,
-        headerIcon: headerIcon ?? Icons.grid_view_rounded,
-        options: options,
-        selected: selected,
-      );
-    },
-  );
-}
-
-class _OptionPickerSheet extends StatefulWidget {
-  const _OptionPickerSheet({
-    required this.title,
-    required this.options,
-    required this.headerIcon,
-    this.subtitle,
-    this.searchHint,
-    this.selected,
-  });
-
-  final String title;
-  final String? subtitle;
-  final String? searchHint;
-  final IconData headerIcon;
-  final List<_SelectOption> options;
-  final String? selected;
-
-  @override
-  State<_OptionPickerSheet> createState() => _OptionPickerSheetState();
-}
-
-class _OptionPickerSheetState extends State<_OptionPickerSheet> {
-  final _search = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  List<_SelectOption> get _filtered {
-    final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return widget.options;
-    return widget.options
-        .where((o) => o.label.toLowerCase().contains(q))
-        .toList(growable: false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.78;
-    final filtered = _filtered;
-
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[
-                Color(0xFFF0FDFA),
-                Colors.white,
-                Colors.white,
-              ],
-              stops: <double>[0, 0.18, 1],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Brand.themeColor,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        widget.headerIcon,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            widget.title,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                            ),
-                          ),
-                          if (widget.subtitle != null &&
-                              widget.subtitle!.trim().isNotEmpty) ...<Widget>[
-                            const SizedBox(height: 2),
-                            Text(
-                              widget.subtitle!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppTheme.ink.withValues(alpha: 0.55),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: IconButton.styleFrom(
-                        backgroundColor: const Color(0xFFF1F5F9),
-                        foregroundColor: AppTheme.ink.withValues(alpha: 0.65),
-                      ),
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                child: TextField(
-                  controller: _search,
-                  onChanged: (String value) => setState(() => _query = value),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: widget.searchHint ?? t('STORE_FORM.SEARCH'),
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color: AppTheme.ink.withValues(alpha: 0.4),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(999),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(999),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(999),
-                      borderSide: BorderSide(
-                        color: Brand.themeColor,
-                        width: 1.4,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Flexible(
-                child: filtered.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          t('STORE_FORM.OPTION_PICK_EMPTY'),
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: AppTheme.ink.withValues(alpha: 0.55),
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (BuildContext context, int index) {
-                          final option = filtered[index];
-                          final originalIndex = widget.options.indexWhere(
-                            (o) => o.value == option.value,
-                          );
-                          final visual = _visualForOption(
-                            option.label,
-                            originalIndex < 0 ? index : originalIndex,
-                          );
-                          final isSelected = option.value == widget.selected;
-                          return Material(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () =>
-                                  Navigator.pop(context, option.value),
-                              child: Ink(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? Brand.themeColor
-                                        : const Color(0xFFE2E8F0),
-                                    width: isSelected ? 1.6 : 1,
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                  child: Row(
-                                    children: <Widget>[
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: visual.bg,
-                                          borderRadius:
-                                              BorderRadius.circular(11),
-                                        ),
-                                        child: Icon(
-                                          visual.icon,
-                                          color: visual.fg,
-                                          size: 20,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          option.label,
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                      ),
-                                      if (isSelected)
-                                        Container(
-                                          width: 26,
-                                          height: 26,
-                                          decoration: BoxDecoration(
-                                            color: Brand.themeColor,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.check_rounded,
-                                            color: Colors.white,
-                                            size: 16,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _SheetSelectField extends FormField<String> {
   _SheetSelectField({
@@ -1821,29 +1397,29 @@ class _ProductImagePicker extends StatelessWidget {
                               children: <Widget>[
                                 ClipRRect(
                                   borderRadius: AppTheme.borderRadius,
-                                  child: _hasLocal
-                                      ? Image.memory(
-                                          bytes!,
-                                          fit: BoxFit.cover,
-                                        )
-                                      : Image.network(
-                                          networkUrl!.trim(),
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (
-                                            BuildContext context,
-                                            Object error,
-                                            StackTrace? stackTrace,
-                                          ) =>
-                                              ColoredBox(
-                                            color: BrandTeal.soft,
-                                            child: Icon(
+                                  child: ColoredBox(
+                                    color: Colors.white,
+                                    child: _hasLocal
+                                        ? Image.memory(
+                                            bytes!,
+                                            fit: BoxFit.contain,
+                                          )
+                                        : Image.network(
+                                            networkUrl!.trim(),
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (
+                                              BuildContext context,
+                                              Object error,
+                                              StackTrace? stackTrace,
+                                            ) =>
+                                                Icon(
                                               Icons.broken_image_outlined,
                                               color: AppTheme.ink.withValues(
                                                 alpha: 0.35,
                                               ),
                                             ),
                                           ),
-                                        ),
+                                  ),
                                 ),
                                 Positioned(
                                   right: 4,

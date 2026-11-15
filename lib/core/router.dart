@@ -13,6 +13,7 @@ import '../features/staff/auth/staff_signup_page.dart';
 import '../features/staff/onboarding/staff_onboarding_page.dart';
 import '../features/staff/medicines/catalog_product_edit_sheet.dart';
 import '../features/staff/medicines/catalog_product_page.dart';
+import '../features/staff/medicines/manage_stock_page.dart';
 import '../features/staff/medicines/medicines_create_page.dart';
 import '../features/staff/medicines/medicines_page.dart';
 import '../features/staff/pos/pos_checkout_page.dart';
@@ -33,6 +34,7 @@ import '../features/staff/more/staff_web_page.dart';
 import '../features/staff/shell/staff_pop_scope.dart';
 import '../features/staff/shell/staff_shell.dart';
 import '../features/staff/store_settings/categories_page.dart';
+import '../features/staff/store_settings/category_form_page.dart';
 import '../features/staff/store_settings/profile_edit_page.dart';
 import '../features/staff/store_settings/profile_page.dart';
 import '../features/staff/store_settings/store_detail_page.dart';
@@ -343,6 +345,15 @@ GoRouter createAppRouter({String initialLocation = Routes.staffLogin}) {
               );
             },
           ),
+          GoRoute(
+            path: 'stock',
+            builder: (BuildContext context, GoRouterState state) {
+              final id = state.pathParameters['storeProductId'] ?? '';
+              return _staffOffShell(
+                ManageStockPage(storeProductId: id),
+              );
+            },
+          ),
         ],
       ),
       // Order view/edit outside bottom bar.
@@ -459,6 +470,19 @@ GoRouter createAppRouter({String initialLocation = Routes.staffLogin}) {
             },
           ),
         ],
+      ),
+      GoRoute(
+        path: Routes.staffCategoriesCreate,
+        builder: (BuildContext context, GoRouterState state) {
+          return _staffOffShell(const CategoryFormPage());
+        },
+      ),
+      GoRoute(
+        path: '${Routes.staffCategories}/:categoryId/edit',
+        builder: (BuildContext context, GoRouterState state) {
+          final id = state.pathParameters['categoryId'] ?? '';
+          return _staffOffShell(CategoryFormPage(categoryId: id));
+        },
       ),
       GoRoute(
         path: Routes.staffCategories,
